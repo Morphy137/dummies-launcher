@@ -1,6 +1,6 @@
 import { Star20Filled, Star20Regular } from "@fluentui/react-icons";
 import { useTranslation } from "react-i18next";
-import type { Game } from "../types";
+import { type Game, makeGameKey } from "../types";
 
 interface GameListProps {
   games: Game[];
@@ -12,7 +12,7 @@ export default function GameList({ games }: GameListProps) {
   return (
     <section className="game-list" aria-label={t("library.title")}>
       {games.map((game) => (
-        <div key={game.id} className={`game-row${game.running ? " is-running" : ""}`}>
+        <div key={makeGameKey(game)} className={`game-row${game.running ? " is-running" : ""}`}>
           <span className={`status-dot${game.running ? " is-active" : ""}`} aria-hidden="true" />
           <span className="game-row__name">{game.name}</span>
           <span className="game-row__exe">{game.exe}</span>
@@ -22,7 +22,7 @@ export default function GameList({ games }: GameListProps) {
               : ""}
           </span>
           <span className="game-row__favorite" aria-hidden="true">
-            {game.favorite ? <Star20Filled /> : <Star20Regular />}
+            {game.isFavorite ? <Star20Filled /> : <Star20Regular />}
           </span>
         </div>
       ))}

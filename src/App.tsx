@@ -9,16 +9,34 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import AddGameDialog from "./components/AddGameDialog";
+import GameDetail from "./components/GameDetail";
 import GameList from "./components/GameList";
 import PosterGrid from "./components/PosterGrid";
 import SettingsDialog from "./components/SettingsDialog";
 import TitleBar from "./components/TitleBar";
 import Toast from "./components/Toast";
-import { mockGames } from "./data/mockGames";
 import i18n from "./i18n";
-import { getBootstrap, launchDummy, onDummyExited, saveSettings, stopDummy } from "./lib/backend";
+import {
+  addGame,
+  getBootstrap,
+  launchDummy,
+  onDummyExited,
+  removeGame,
+  saveSettings,
+  stopDummy,
+  toggleFavorite,
+  updateGameExecutable,
+} from "./lib/backend";
 import { useResolvedTheme } from "./theme/useResolvedTheme";
-import { DEFAULT_SETTINGS, type Game, type GameFilter, makeGameKey, type Settings } from "./types";
+import {
+  type DatabaseGame,
+  DEFAULT_SETTINGS,
+  type Game,
+  type GameFilter,
+  makeGameKey,
+  type Settings,
+} from "./types";
 
 type ViewMode = "grid" | "list";
 
@@ -45,6 +63,9 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<GameFilter>("all");
   const [view, setView] = useState<ViewMode>("grid");
+  const [library, setLibrary] = useState<Game[]>([]);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [addGameOpen, setAddGameOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsSnapshot, setSettingsSnapshot] = useState<Settings>(DEFAULT_SETTINGS);
   const [systemLocale, setSystemLocale] = useState("en");
@@ -70,6 +91,7 @@ export default function App() {
         setSettings(data.settings);
         setSystemLocale(data.systemLocale);
         setRunningKeys(new Set(data.runningKeys));
+        setLibrary(data.library);
       })
       .catch((error: unknown) => {
         if (!cancelled) {
@@ -101,28 +123,58 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    if (selectedKey && !library.some((game) => makeGameKey(game) === selectedKey)) {
+      setSelectedKey(null);
+    }
+  }, [library, selectedKey]);
+
   const games = useMemo(() => {
     const term = query.trim().toLowerCase();
 
-    return mockGames
+    return library
       .map((game) => ({
         ...game,
         running: runningKeys.has(makeGameKey(game)),
       }))
       .filter((game) => {
-        if (filter === "favorites" && !game.favorite) return false;
+        if (filter === "favorites" && !game.isFavorite) return false;
         if (filter === "active" && !game.running) return false;
         if (term && !game.name.toLowerCase().includes(term)) return false;
         return true;
       });
-  }, [filter, query, runningKeys]);
+  }, [filter, library, query, runningKeys]);
+
+  const selectedGame = useMemo(() => {
+    if (!selectedKey) return null;
+    const game = library.find((entry) => makeGameKey(entry) === selectedKey);
+    return game ? { ...game, running: runningKeys.has(selectedKey) } : null;
+  }, [library, runningKeys, selectedKey]);
 
   const showToast = (text: string) => {
     setToast({ id: Date.now(), text });
   };
 
-  const handleAddGame = () => {
-    showToast(t("notices.catalogSoon"));
+  const handleAddGame = async (game: DatabaseGame) => {
+    const added = await addGame(game);
+    setLibrary((current) => {
+      if (current.some((entry) => makeGameKey(entry) === makeGameKey(added))) {
+        return current;
+      }
+      return [...current, added];
+    });
+    setSelectedKey(makeGameKey(added));
+  };
+
+  const handleToggleFavorite = async (game: Game) => {
+    try {
+      const updated = await toggleFavorite(game.appId, game.exe);
+      setLibrary((current) =>
+        current.map((entry) => (makeGameKey(entry) === makeGameKey(updated) ? updated : entry)),
+      );
+    } catch (error: unknown) {
+      showToast(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const handleToggleRunning = async (game: Game) => {
@@ -154,6 +206,30 @@ export default function App() {
       showToast(`${prefix} ${message}`);
     } finally {
       setBusyKey(null);
+    }
+  };
+
+  const handleUpdateExe = async (game: Game, exe: string) => {
+    try {
+      const updated = await updateGameExecutable(game.appId, game.exe, exe);
+      setLibrary((current) =>
+        current.map((entry) => (makeGameKey(entry) === makeGameKey(game) ? updated : entry)),
+      );
+      setSelectedKey(makeGameKey(updated));
+    } catch (error: unknown) {
+      showToast(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  };
+
+  const handleDeleteGame = async (game: Game) => {
+    try {
+      await removeGame(game.appId, game.exe);
+      setLibrary((current) => current.filter((entry) => makeGameKey(entry) !== makeGameKey(game)));
+      setSelectedKey(null);
+    } catch (error: unknown) {
+      showToast(error instanceof Error ? error.message : String(error));
+      throw error;
     }
   };
 
@@ -203,90 +279,113 @@ export default function App() {
       <div className="app-shell">
         <TitleBar />
 
-        <main className="library">
-          <header className="command-bar">
-            <label className="search-box">
-              <Search20Regular aria-hidden="true" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t("library.searchPlaceholder")}
-                aria-label={t("library.searchPlaceholder")}
-                spellCheck={false}
-              />
-              <kbd className="keycap">{t("search.shortcut")}</kbd>
-            </label>
-
-            <div className="filter-pills" role="tablist" aria-label={t("library.title")}>
-              {filters.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  role="tab"
-                  aria-selected={filter === item}
-                  className={`filter-pill${filter === item ? " is-active" : ""}`}
-                  onClick={() => setFilter(item)}
-                >
-                  {t(`library.${item}`)}
-                </button>
-              ))}
-            </div>
-
-            <div className="command-bar__actions">
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={t("settings.title")}
-                title={t("settings.title")}
-                onClick={handleOpenSettings}
-              >
-                <Settings20Regular />
-              </button>
-              <button type="button" className="primary-button" onClick={handleAddGame}>
-                <Add20Regular />
-                {t("library.addGame")}
-              </button>
-            </div>
-          </header>
-
-          <div className="library__heading">
-            <h1>{t("library.title")}</h1>
-            <span className="library__count">{t("library.count", { count: games.length })}</span>
-
-            <fieldset className="view-toggle" aria-label="View mode">
-              <button
-                type="button"
-                className={`icon-button icon-button--small${view === "grid" ? " is-active" : ""}`}
-                onClick={() => setView("grid")}
-                aria-pressed={view === "grid"}
-                title="Grid"
-              >
-                <Grid20Regular />
-              </button>
-              <button
-                type="button"
-                className={`icon-button icon-button--small${view === "list" ? " is-active" : ""}`}
-                onClick={() => setView("list")}
-                aria-pressed={view === "list"}
-                title="List"
-              >
-                <List20Regular />
-              </button>
-            </fieldset>
-          </div>
-
-          {view === "grid" ? (
-            <PosterGrid
-              games={games}
-              cardsPerRow={settings.cardsPerRow}
-              onAddGame={handleAddGame}
+        {selectedGame ? (
+          <main className="library library--detail">
+            <GameDetail
+              key={selectedKey}
+              game={selectedGame}
+              busy={busyKey === makeGameKey(selectedGame)}
+              onBack={() => setSelectedKey(null)}
+              onDelete={handleDeleteGame}
+              onToggleFavorite={handleToggleFavorite}
               onToggleRunning={handleToggleRunning}
-              busyKey={busyKey}
+              onUpdateExe={handleUpdateExe}
             />
-          ) : (
-            <GameList games={games} />
-          )}
-        </main>
+          </main>
+        ) : (
+          <main className="library">
+            <header className="command-bar">
+              <label className="search-box">
+                <Search20Regular aria-hidden="true" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t("library.searchPlaceholder")}
+                  aria-label={t("library.searchPlaceholder")}
+                  spellCheck={false}
+                />
+                <kbd className="keycap">{t("search.shortcut")}</kbd>
+              </label>
+
+              <div className="filter-pills" role="tablist" aria-label={t("library.title")}>
+                {filters.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    role="tab"
+                    aria-selected={filter === item}
+                    className={`filter-pill${filter === item ? " is-active" : ""}`}
+                    onClick={() => setFilter(item)}
+                  >
+                    {t(`library.${item}`)}
+                  </button>
+                ))}
+              </div>
+
+              <div className="command-bar__actions">
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={t("settings.title")}
+                  title={t("settings.title")}
+                  onClick={handleOpenSettings}
+                >
+                  <Settings20Regular />
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => setAddGameOpen(true)}
+                >
+                  <Add20Regular />
+                  {t("library.addGame")}
+                </button>
+              </div>
+            </header>
+
+            <div className="library__heading">
+              <h1>{t("library.title")}</h1>
+              <span className="library__count">{t("library.count", { count: games.length })}</span>
+
+              <fieldset className="view-toggle" aria-label="View mode">
+                <button
+                  type="button"
+                  className={`icon-button icon-button--small${view === "grid" ? " is-active" : ""}`}
+                  onClick={() => setView("grid")}
+                  aria-pressed={view === "grid"}
+                  title="Grid"
+                >
+                  <Grid20Regular />
+                </button>
+                <button
+                  type="button"
+                  className={`icon-button icon-button--small${view === "list" ? " is-active" : ""}`}
+                  onClick={() => setView("list")}
+                  aria-pressed={view === "list"}
+                  title="List"
+                >
+                  <List20Regular />
+                </button>
+              </fieldset>
+            </div>
+
+            {view === "grid" ? (
+              <PosterGrid
+                games={games}
+                cardsPerRow={settings.cardsPerRow}
+                onAddGame={() => setAddGameOpen(true)}
+                onOpenGame={(game) => setSelectedKey(makeGameKey(game))}
+                onToggleFavorite={handleToggleFavorite}
+                onToggleRunning={handleToggleRunning}
+                busyKey={busyKey}
+              />
+            ) : (
+              <GameList games={games} />
+            )}
+          </main>
+        )}
+
+        <AddGameDialog open={addGameOpen} onOpenChange={setAddGameOpen} onAdd={handleAddGame} />
 
         <SettingsDialog
           open={settingsOpen}

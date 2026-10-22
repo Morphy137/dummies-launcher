@@ -3,15 +3,19 @@ export type ThemeMode = "system" | "dark" | "light";
 export type LanguageMode = "system" | "en" | "es";
 
 export interface Game {
-  id: string;
-  name: string;
   appId: string;
+  name: string;
   exe: string;
-  favorite: boolean;
+  isFavorite: boolean;
   running: boolean;
   remaining?: string;
-  initials: string;
-  art: [string, string];
+  steamAppId?: string | null;
+  iconHash?: string | null;
+  coverImageHash?: string | null;
+  requiresSteam: boolean;
+  useSteamPath: boolean;
+  installDir?: string | null;
+  steamExePath?: string | null;
 }
 
 export interface Settings {
@@ -34,6 +38,7 @@ export interface Bootstrap {
   settings: Settings;
   systemLocale: string;
   runningKeys: string[];
+  library: Game[];
   version: string;
 }
 
@@ -53,6 +58,30 @@ export interface DummyExitedPayload {
   key: string;
   name: string;
   code?: number;
+}
+
+export interface DatabaseGame {
+  id: string;
+  name: string;
+  exe: string;
+  isLauncher: boolean;
+  usesNewDetection: boolean;
+  steamAppId?: string | null;
+  iconHash?: string | null;
+  coverImageHash?: string | null;
+}
+
+export interface DatabasePage {
+  items: DatabaseGame[];
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+export interface SyncResult {
+  updated: boolean;
+  count: number;
+  path: string;
 }
 
 export function makeGameKey(game: Pick<Game, "appId" | "exe">): string {

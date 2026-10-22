@@ -7,6 +7,8 @@ interface PosterGridProps {
   games: Game[];
   cardsPerRow: number;
   onAddGame: () => void;
+  onOpenGame: (game: Game) => void;
+  onToggleFavorite: (game: Game) => void;
   onToggleRunning: (game: Game) => void;
   busyKey: string | null;
 }
@@ -15,6 +17,8 @@ export default function PosterGrid({
   games,
   cardsPerRow,
   onAddGame,
+  onOpenGame,
+  onToggleFavorite,
   onToggleRunning,
   busyKey,
 }: PosterGridProps) {
@@ -40,9 +44,11 @@ export default function PosterGrid({
     <section className="poster-grid" style={gridStyle} aria-label={t("library.title")}>
       {games.map((game) => (
         <PosterCard
-          key={game.id}
+          key={makeGameKey(game)}
           game={game}
           busy={busyKey === makeGameKey(game)}
+          onOpen={onOpenGame}
+          onToggleFavorite={onToggleFavorite}
           onToggleRunning={onToggleRunning}
         />
       ))}
