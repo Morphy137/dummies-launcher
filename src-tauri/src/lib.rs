@@ -1017,11 +1017,16 @@ fn spawn_monitor(app: AppHandle, running: Arc<Mutex<HashMap<String, RunningDummy
                 }
             }
 
+            let had_exits = !exited.is_empty();
             for payload in exited {
                 let _ = app.emit("dummy://exited", payload);
             }
-            let state = app.state::<AppState>();
-            update_tray_menu(&app, state.inner());
+            // Replacing the native menu while it is open makes Windows dismiss it instantly,
+            // so only rebuild it when a dummy actually exits.
+            if had_exits {
+                let state = app.state::<AppState>();
+                update_tray_menu(&app, state.inner());
+            }
         }
     });
 }
