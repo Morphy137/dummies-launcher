@@ -48,7 +48,7 @@ The Rust/Win32 dummy is intentionally tiny:
 
 | Metric | Value |
 |---|---:|
-| `dummy-game.exe` size | 570 KiB |
+| `dummy-game.exe` size | 779 KiB |
 | Hidden private working set | 3.0 MB |
 | Hidden private commit | 3.8 MB |
 | Visible private working set | 3.0 MB |
@@ -67,7 +67,7 @@ per game and could use tens of megabytes for each dummy.
 - Product name: **Dummies**
 - App identifier: `com.morphy137.dummies`
 - Stack: Tauri 2 + Rust + React/TypeScript + Fluent UI v9
-- Dummy process: Rust/Win32, transparent animated Mood window, no .NET/WebView2
+- Dummy process: Rust/Win32, transparent animated resizable Mood window, no .NET/WebView2
 - Design: Raycast-inspired, dark-first, light adaptation, optional Mica/Acrylic
 - Languages: English and Spanish, system default, English fallback
 - License: MIT (see `LICENSE` and `THIRD_PARTY_NOTICES.md`)
@@ -101,6 +101,8 @@ What works today:
 - Steam manifest setup/removal from the detail view.
 - Launch/stop a dummy from a poster or detail view; the Rust dummy is copied into the
   app data `games/` folder and managed by the Tauri backend.
+- Resizable dummy window with a 240x270 default and 180x210–640x720 limits; the
+  minimize and close icons stay centered in their controls.
 - Tray menu with running games, show/hide, stop, stop all, open and quit.
 - Quest countdown, sync buffer, auto-stop and desktop notification.
 - System light/dark theme, manual theme override and English/Spanish UI.

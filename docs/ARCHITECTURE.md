@@ -26,13 +26,13 @@ Build the next version of the launcher as a **Tauri 2** desktop application:
 This is a controlled rewrite, not an in-place Electron migration. The Electron and C#
 implementations stay in `legacy/` (or on a branch) until feature parity is verified.
 
-## Current status (2026-10-21)
+## Current status (2026-10-22)
 
 - Tauri 2 shell scaffolded in this folder.
 - Raycast-inspired library surface implemented with React/Fluent UI primitives.
 - System light/dark detection and English/Spanish locale setup implemented.
 - Rust/Win32 dummy implemented in `crates/dummy-game`.
-- `dummy-game.exe` is 570 KiB; the transparent layered window uses ~3.0 MB private working set.
+- `dummy-game.exe` is 779 KiB; the transparent layered window uses ~3.0 MB private working set.
 - Release shell measured ~147 MB private working set (Task Manager-style) with a real
   28-entry library and remote covers; the Rust app process itself is ~14.3 MB.
 - Settings persistence, system locale detection, dummy launch/stop, running-state
@@ -264,8 +264,10 @@ This is the main resource optimization.
 
 - The process name must be the renamed executable file name; Discord detects it.
 - No .NET runtime, no WebView2, no Node, no sidecar DLLs.
-- Visible by default with a transparent 320x356 layered window.
-- Random pre-rendered Mood art on every launch, with a blink animation.
+- Visible by default with a transparent 240x270 layered window.
+- Resizable from any edge or corner, with a 180x210 minimum and a 640x720 maximum.
+- Random pre-rendered Mood art on every launch, with a blink animation. The art scales
+  with the window and the controls stay centered.
 - Minimal custom frame with minimize and close only (no maximize).
 - A normal 64x64 detection window sits under the face so Discord still sees a
   conventional titled top-level window.
@@ -290,10 +292,15 @@ This is the main resource optimization.
   dependency.
 - The visual window is a `WS_EX_LAYERED` top-level window drawn with
   `UpdateLayeredWindow` from a 32-bit premultiplied BGRA DIB.
-- Each Mood has open-eye and closed-eye PNG frames embedded in the binary. A 50 ms
+- Each Mood has open-eye and closed-eye PNG frames embedded in the binary at 512x512.
+  They are scaled to the current square art area when the window is resized. A 50 ms
   timer toggles the eye frame to reproduce the SVG blink animation.
-- The custom top strip is drawn into the same bitmap; it contains minimize and close
-  hit areas and no maximize control.
+- The source SVGs only define that blink. A native layered window has no SVG/CSS
+  animation engine; two frames reproduce it without WebView2. Richer SVG animations
+  would require a WebView2 Composition/DirectComposition host.
+- The custom top strip is drawn into the same bitmap; it contains centered minimize and
+  close hit areas and no maximize control. Dragging any edge or corner resizes the
+  window within the 180x210–640x720 limits.
 - A normal 64x64 detection window is placed directly under an opaque part of the face.
   It carries the game title and keeps Discord's window scan working despite the
   layered visual surface.
@@ -310,11 +317,11 @@ This is the main resource optimization.
 
 | Metric | Target | Measured |
 |---|---|---:|
-| Dummy executable size | < 1 MB | 570 KiB |
+| Dummy executable size | < 1 MB | 779 KiB |
 | Hidden dummy private working set | < 5 MB | ~3.0 MB |
 | Visible dummy private working set | < 10 MB | ~3.0 MB |
 | Idle CPU | ~0% | ~0% |
-| Disk per game | ~1 MB | ~570 KiB |
+| Disk per game | ~1 MB | ~779 KiB |
 | Startup | < 50 ms | ~instant |
 
 The old self-contained C# WinForms dummy can use tens of MB per process and copies a
