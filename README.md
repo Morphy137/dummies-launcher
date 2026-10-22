@@ -27,10 +27,10 @@ at 1180×760:
 
 | Metric | Value |
 |---|---:|
-| App process private working set | 3.6 MB |
-| WebView2 process tree private working set | ~109 MB |
-| Total private working set (Task Manager-style) | ~113 MB |
-| Total private commit | ~181 MB |
+| App process private working set | 14.3 MB |
+| WebView2 process tree private working set | ~132 MB |
+| Total private working set (Task Manager-style) | ~147 MB |
+| Total private commit | ~236 MB |
 | Electron baseline reported by the user | ~160 MB |
 | NSIS installer | 3.79 MiB |
 | Portable ZIP | 5.02 MiB |

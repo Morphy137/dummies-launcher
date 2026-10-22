@@ -33,8 +33,8 @@ implementations stay in `legacy/` (or on a branch) until feature parity is verif
 - System light/dark detection and English/Spanish locale setup implemented.
 - Rust/Win32 dummy implemented in `crates/dummy-game`.
 - `dummy-game.exe` is 134.5 KB; hidden private working set ~0.7 MB, visible ~1.4 MB.
-- Release shell measured ~113 MB private working set (Task Manager-style) with a real
-  28-entry library; the Rust app process itself is ~3.6 MB.
+- Release shell measured ~147 MB private working set (Task Manager-style) with a real
+  28-entry library and remote covers; the Rust app process itself is ~14.3 MB.
 - Settings persistence, system locale detection, dummy launch/stop, running-state
   events and the settings dialog are implemented.
 - Settings preview live; Cancel reverts, backdrop/Escape saves, saved feedback uses a
