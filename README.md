@@ -1,216 +1,149 @@
-# Dummies — Rust/Tauri migration
+<p align="center">
+  <img src="docs/images/app-icon.png" width="112" alt="Dummies app icon">
+</p>
 
-This folder is the isolated home of the next version of the launcher. The existing
-Electron app remains in `../discord-dummies-launcher/electron/` and the legacy C#
-projects remain in `../discord-dummies-launcher/src/`. Nothing outside this folder is
-modified by the migration until feature parity is verified.
+<h1 align="center">Dummies</h1>
 
-## Status
+<p align="center">
+  <strong>Keep your Discord game status online — without keeping the game open.</strong><br>
+  A lightweight Windows launcher for your game library and game presence.
+</p>
 
-The Rust/Tauri rewrite now covers the core launcher flow: real Discord catalog, a
-persistent library, legacy data migration, launch/stop, tray, quest timers,
-notifications, shortcuts, Steam manifests, and a manual GitHub update check.
+<p align="center">
+  <a href="https://github.com/Morphy137/dummies-launcher/releases/latest">
+    <img src="https://img.shields.io/badge/Download_for_Windows-latest-ff2d78?style=for-the-badge&logo=windows&logoColor=white" alt="Download Dummies for Windows">
+  </a>
+  <img src="https://img.shields.io/github/v/release/Morphy137/dummies-launcher?style=for-the-badge&color=ff2d78" alt="Latest Dummies release">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 10 and 11">
+  <img src="https://img.shields.io/badge/License-MIT-2ea44f?style=for-the-badge" alt="MIT License">
+</p>
 
-Verified locally:
+<p align="center">
+  <img src="docs/images/library.png" width="100%" alt="Dummies game library">
+</p>
 
-- `pnpm check` / `pnpm build` / `pnpm test`
-- `cargo fmt --check` / `cargo clippy -- -D warnings` / `cargo test`
-- `pnpm tauri build --no-bundle` and NSIS packaging
-- End-to-end launch, auto-stop, favorite, edit executable, delete and shortcut flows
+<p align="center">
+  <em>Your library, your favorites and your active games in one place.</em>
+</p>
 
-Pending: signed auto-updater, portable packaging, code signing, and broader QA.
+## What Dummies does
 
-### Release shell baseline
+Dummies is a small Windows app that makes Discord show the game you choose. Add a
+game, press **Play**, and Dummies opens a tiny transparent window that Discord
+recognizes. Stop it whenever you want.
 
-Measured on 2026-10-21 with the release build, a real 28-entry library, window visible
-at 1180×760:
+- No Discord login or account connection.
+- No game installation required.
+- Covers, favorites and filters stay ready between sessions.
+- Runs on Windows 10 and 11.
 
-| Metric | Value |
-|---|---:|
-| App process private working set | 14.3 MB |
-| WebView2 process tree private working set | ~132 MB |
-| Total private working set (Task Manager-style) | ~147 MB |
-| Total private commit | ~236 MB |
-| Electron baseline reported by the user | ~160 MB |
-| NSIS installer | 3.79 MiB |
-| Portable ZIP | 5.02 MiB |
-| Release app executable | 14.22 MiB |
+## Add any detectable game
 
-The Rust shell itself is tiny; WebView2 is the remaining cost. The dummy process
-rewrite is the larger resource win, because the current C# dummy carries a .NET
-runtime per game.
+Search the built-in catalog of games Discord can detect and add one in a click. Dummies
+keeps your library on your PC and caches cover art, so switching filters is instant.
 
-Use `pnpm measure` while the app is running to reproduce the process-tree measurement.
+<p align="center">
+  <img src="docs/images/add-game.png" width="100%" alt="Searching for Helldivers in the Add game dialog">
+</p>
 
-### Dummy process baseline
+## Open a game and press Play
 
-The Rust/Win32 dummy is intentionally tiny:
+Each game has a detail view with its cover, executable, App ID and Steam status. Launch
+or stop the dummy from here, edit the executable, create a shortcut or configure Steam.
 
-| Metric | Value |
-|---|---:|
-| `dummy-game.exe` size | 779 KiB |
-| Hidden private working set | 3.0 MB |
-| Hidden private commit | 3.8 MB |
-| Visible private working set | 3.0 MB |
-| Visible total working set | 14.9 MB |
+<p align="center">
+  <img src="docs/images/game-detail.png" width="100%" alt="Helldivers 2 game detail view">
+</p>
 
-Build and test it with:
+## A tiny window, not another game
+
+The dummy is a transparent, animated face with minimize and close controls. It is
+resizable, stays out of the way and can be sent to the tray. Discord still sees the game
+while it is running.
+
+<p align="center">
+  <img src="docs/images/dummy.png" width="80%" alt="Transparent animated dummy window over a game background">
+</p>
+
+## Make it yours
+
+Choose the theme, language and cards per row. Configure quest timers, sync buffer,
+auto-stop, desktop notifications and floating-window behavior from one settings panel.
+
+<p align="center">
+  <img src="docs/images/settings.png" width="80%" alt="Dummies settings dialog">
+</p>
+
+## How it works
+
+1. **Download** Dummies for Windows.
+2. **Add a game** from the built-in catalog.
+3. **Press Play**. Discord shows the game while Dummies is running.
+4. **Press Stop** when you are done.
+
+## Download
+
+Get the latest installer or portable ZIP from the
+[releases page](https://github.com/Morphy137/dummies-launcher/releases/latest).
+
+| Package | Use it if… |
+|---|---|
+| **Installer** | You want a normal Windows installation with a Start menu shortcut. |
+| **Portable ZIP** | You prefer to run Dummies without installing it. |
+
+The installer is not code-signed yet, so Windows SmartScreen may ask you to confirm the
+first launch.
+
+## Built for Windows
+
+Dummies uses the Discord-detectable app catalog, keeps its data local and supports
+English and Spanish. Game covers come from Steam and Discord. Your game installation
+and account are not modified.
+
+Dummies is an independent project and is not affiliated with Discord.
+
+## Development
+
+<details>
+<summary>Build and run from source</summary>
+
+**Requirements:** Windows 10/11, Rust MSVC, Node.js, pnpm and the WebView2 runtime.
 
 ```powershell
-cargo test --manifest-path crates/dummy-game/Cargo.toml
-cargo build --release --manifest-path crates/dummy-game/Cargo.toml
-```
-
-This replaces the self-contained C# WinForms template, which carried a .NET runtime
-per game and could use tens of megabytes for each dummy.
-
-- Product name: **Dummies**
-- App identifier: `com.morphy137.dummies`
-- Stack: Tauri 2 + Rust + React/TypeScript + Fluent UI v9
-- Dummy process: Rust/Win32, transparent animated resizable Mood window, no .NET/WebView2
-- Design: Raycast-inspired, dark-first, light adaptation, optional Mica/Acrylic
-- Languages: English and Spanish, system default, English fallback
-- License: MIT (see `LICENSE` and `THIRD_PARTY_NOTICES.md`)
-
-## Testing
-
-### Run the current app
-
-From this folder:
-
-```powershell
-$env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
+pnpm install
 pnpm build:dummy
 pnpm tauri:dev
 ```
 
-To run the already-built release executable:
+**Build the Windows installer:**
 
 ```powershell
-.\src-tauri\target\release\dummies.exe
+pnpm tauri build --bundles nsis
 ```
 
-What works today:
-
-- Real Discord detectable catalog, search, paging and `Add game`.
-- Persistent `myGames.json` library, with automatic migration from the old Electron
-  userData on first run.
-- Search, `All / Favorites / Active` filters, grid/list toggle and live covers.
-- Favorite toggle, executable override, delete, and desktop shortcut creation.
-- Game detail view with cover backdrop, metadata, launch/stop and Steam status.
-- Steam manifest setup/removal from the detail view.
-- Launch/stop a dummy from a poster or detail view; the Rust dummy is copied into the
-  app data `games/` folder and managed by the Tauri backend.
-- Resizable dummy window with a 240x270 default and 180x210–640x720 limits; the
-  minimize and close icons stay centered in their controls.
-- Persistent cover cache: filters, grid/list and detail views reuse downloaded posters;
-  failed cover candidates are remembered for the current app session.
-- Tray menu with running games, show/hide, stop, stop all, open and quit.
-- Quest countdown, sync buffer, auto-stop and desktop notification.
-- System light/dark theme, manual theme override and English/Spanish UI.
-- Settings dialog persisted to `%APPDATA%\com.morphy137.dummies\settings.json`.
-  Theme and language preview immediately, Cancel reverts, clicking outside saves, and
-  a short overlay toast confirms the save without shifting the layout.
-- Cards-per-row setting (4–8) applied live to the poster wall.
-- Manual GitHub release check with version display.
-- Fluent System Icons for app chrome, window controls, cards and toasts.
-- Responsive poster wall at the minimum window size.
-
-Pending:
-
-- Signed Tauri auto-updater and code signing.
-- Portable packaging.
-- Broader QA across Windows 10/11, DPI, high contrast and offline states.
-
-### Test the dummy process
+**Build the portable ZIP:**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\test-dummy.ps1 -DisplayName "Helldivers 2"
-```
-
-The script starts the dummy hidden, sends `SHOW`, measures it, sends `HIDE`, then
-`QUIT`. Add `-Visible` to start with the optional window already visible:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\test-dummy.ps1 -DisplayName "Helldivers 2" -Visible
-```
-
-### Measure the app process tree
-
-With the app running:
-
-```powershell
-pnpm measure
-```
-
-This sums the Rust app process and its WebView2 children using Task Manager-style
-private working set.
-
-### Test the installer or portable package
-
-```powershell
-.\src-tauri\target\release\bundle\nsis\Dummies_1.0.0_x64-setup.exe
-```
-
-Or build and use the portable ZIP:
-
-```powershell
-pnpm tauri:build -- --no-bundle
+pnpm tauri build --no-bundle
 pnpm package:portable
-.\src-tauri\target\release\portable\Dummies-Portable-1.0.0.zip
 ```
 
-The installer is unsigned, so Windows SmartScreen may ask for confirmation. It
-installs the current Rust/Tauri launcher.
+**Checks:**
 
-### Test light/dark and language
-
-- Change Windows Settings → Personalization → Colors → “Choose your mode”. The app
-  follows the system theme at runtime.
-- Open Settings to override Theme and Language manually. “System” uses the OS theme
-  and the system locale returned by the Rust backend; missing translations fall back
-  to English.
-- Dark is the canonical Raycast surface; light is an adapted variant. The current
-  system theme determines which one opens.
-
-## Read first
-
-- [`docs/DESIGN.md`](docs/DESIGN.md) — visual system, tokens, screens, motion, copy.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — stack, workspace, dummy
-  optimization, data migration, commands, security, phases.
-
-## Planned layout
-
-```text
-dummies-launcher/
-  Cargo.toml
-  crates/
-    app-core/
-    dummy-game/
-  src-tauri/
-  src/
-  docs/
+```powershell
+pnpm check
+pnpm test
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path crates/dummy-game/Cargo.toml
 ```
 
-## Prerequisites
+More details:
 
-1. Visual Studio 2022 Build Tools with “Desktop development with C++” and the Windows
-   10/11 SDK.
-2. Rust stable MSVC (`rustup default stable-x86_64-pc-windows-msvc`).
-3. Node.js LTS and pnpm.
-4. The Tauri CLI 2 (installed as a project dev dependency).
-5. The WebView2 runtime (present on Windows 11 and most Windows 10 systems).
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — stack, data, dummy process and release flow.
+- [`docs/DESIGN.md`](docs/DESIGN.md) — visual system, screens and motion.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full setup and release plan.
+</details>
 
-## Boundaries
+## License
 
-- Do not add `Discord` to the window title, installer title, tray tooltip, or main
-  navigation. The app is called **Dummies**.
-- The old Electron app is the reference implementation, not a dependency of the Rust
-  app.
-- Do not delete or rewrite the old app/data. Import a copy of the old data on first run.
-- Do not introduce a second primary CTA color. Dark mode uses a white primary button;
-  light mode uses a black one.
-- Do not apply Acrylic to the main content surface. Mica is optional and limited to the
-  title bar/backdrop.
+MIT. See [`LICENSE`](LICENSE) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
