@@ -65,10 +65,42 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build NSIS installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm tauri build --bundles nsis
 
       - name: Build portable package
         run: pnpm package:portable
+
+      - name: Generate updater manifest
+        shell: pwsh
+        run: |
+          $version = (Get-Content "package.json" -Raw | ConvertFrom-Json).version
+          $setup = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          if (-not $setup) {
+            throw "NSIS installer not found"
+          }
+          $signaturePath = "$($setup.FullName).sig"
+          if (-not (Test-Path $signaturePath)) {
+            throw "Updater signature not found: $signaturePath"
+          }
+
+          $signature = (Get-Content $signaturePath -Raw).Trim()
+          $assetUrl = "https://github.com/Morphy137/dummies-launcher/releases/download/v$version/$($setup.Name)"
+          $manifest = [ordered]@{
+            version = $version
+            notes = "Dummies $version"
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $signature
+                url = $assetUrl
+              }
+            }
+          }
+
+          $manifest | ConvertTo-Json -Depth 6 | Set-Content "src-tauri/target/release/latest.json" -Encoding utf8
 
       - name: Generate checksums
         shell: pwsh
@@ -76,6 +108,7 @@ jobs:
           $files = @(
             Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe"
             Get-ChildItem "src-tauri/target/release/portable/*.zip"
+            Get-Item "src-tauri/target/release/latest.json"
           )
           $checksums = foreach ($file in $files) {
             $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -93,6 +126,7 @@ jobs:
           $assets = @(
             Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -ExpandProperty FullName
             Get-ChildItem "src-tauri/target/release/portable/*.zip" | Select-Object -ExpandProperty FullName
+            "src-tauri/target/release/latest.json"
             "src-tauri/target/release/SHA256SUMS.txt"
           )
 

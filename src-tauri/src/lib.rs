@@ -17,7 +17,6 @@ use winreg::RegKey;
 use winreg::enums::HKEY_CURRENT_USER;
 
 const DISCORD_DETECTABLE_URL: &str = "https://discord.com/api/applications/detectable";
-const UPDATES_REPOSITORY: &str = "Morphy137/dummies-launcher";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -128,17 +127,6 @@ struct SyncResult {
     updated: bool,
     count: usize,
     path: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdateInfo {
-    update_available: bool,
-    current_version: String,
-    latest_version: String,
-    release_url: String,
-    release_name: String,
-    release_notes: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1274,88 +1262,6 @@ fn get_steam_path() -> Option<String> {
     find_steam_path().map(|path| path.to_string_lossy().to_string())
 }
 
-fn parse_version(value: &str) -> Option<Vec<u32>> {
-    let trimmed = value.trim().trim_start_matches(['v', 'V']);
-    let core = trimmed.split(['-', '+']).next()?;
-    core.split('.')
-        .map(|part| part.parse::<u32>().ok())
-        .collect()
-}
-
-fn version_is_newer(latest: &str, current: &str) -> bool {
-    let Some(latest) = parse_version(latest) else {
-        return false;
-    };
-    let Some(current) = parse_version(current) else {
-        return false;
-    };
-
-    for index in 0..3 {
-        let next = *latest.get(index).unwrap_or(&0);
-        let installed = *current.get(index).unwrap_or(&0);
-        if next != installed {
-            return next > installed;
-        }
-    }
-
-    false
-}
-
-#[tauri::command]
-async fn check_for_updates() -> Result<UpdateInfo, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("Dummies/1.0")
-            .timeout(Duration::from_secs(20))
-            .build()
-            .map_err(|error| error.to_string())?;
-        let response = client
-            .get(format!(
-                "https://api.github.com/repos/{UPDATES_REPOSITORY}/releases/latest"
-            ))
-            .header("Accept", "application/vnd.github+json")
-            .send()
-            .map_err(|error| error.to_string())?;
-
-        if !response.status().is_success() {
-            return Err(format!("GitHub returned {}", response.status()));
-        }
-
-        let json: serde_json::Value = response.json().map_err(|error| error.to_string())?;
-        let latest_version = json
-            .get("tag_name")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .trim()
-            .trim_start_matches(['v', 'V'])
-            .to_string();
-        let current_version = env!("CARGO_PKG_VERSION").to_string();
-
-        Ok(UpdateInfo {
-            update_available: version_is_newer(&latest_version, &current_version),
-            current_version,
-            latest_version,
-            release_url: json
-                .get("html_url")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            release_name: json
-                .get("name")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            release_notes: json
-                .get("body")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-        })
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
 #[tauri::command]
 fn setup_steam_integration(
     app: AppHandle,
@@ -1676,6 +1582,9 @@ pub fn run() {
             }
             app.handle().plugin(tauri_plugin_notification::init())?;
             app.handle().plugin(tauri_plugin_opener::init())?;
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            app.handle().plugin(tauri_plugin_process::init())?;
 
             let data_dir = app.path().app_data_dir()?;
             fs::create_dir_all(&data_dir)?;
@@ -1721,7 +1630,6 @@ pub fn run() {
             get_steam_path,
             setup_steam_integration,
             remove_steam_integration,
-            check_for_updates,
             launch_dummy,
             stop_dummy,
             stop_all_dummies,

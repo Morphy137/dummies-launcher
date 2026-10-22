@@ -7,7 +7,7 @@ import {
   Settings20Regular,
 } from "@fluentui/react-icons";
 import { isTauri } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import AddGameDialog from "./components/AddGameDialog";
@@ -18,10 +18,10 @@ import SettingsDialog from "./components/SettingsDialog";
 import SteamDialog from "./components/SteamDialog";
 import TitleBar from "./components/TitleBar";
 import Toast from "./components/Toast";
+import UpdateDialog from "./components/UpdateDialog";
 import i18n from "./i18n";
 import {
   addGame,
-  checkForUpdates,
   createShortcut,
   getBootstrap,
   launchDummy,
@@ -35,6 +35,7 @@ import {
   toggleFavorite,
   updateGameExecutable,
 } from "./lib/backend";
+import { checkForUpdate, installUpdate } from "./lib/updater";
 import { useResolvedTheme } from "./theme/useResolvedTheme";
 import {
   type DatabaseGame,
@@ -98,6 +99,11 @@ export default function App() {
     duration?: number;
     onAction?: () => void;
   } | null>(null);
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<number | undefined>();
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   const resolvedTheme = useResolvedTheme(settings.theme);
   const language =
@@ -141,21 +147,11 @@ export default function App() {
 
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void checkForUpdates()
-        .then((info) => {
-          if (cancelled || !info.updateAvailable) return;
-
-          setToast({
-            id: Date.now(),
-            text: i18n.t("notices.updateAvailable", { version: info.latestVersion }),
-            actionLabel: info.releaseUrl ? i18n.t("notices.viewRelease") : undefined,
-            duration: 8500,
-            onAction: info.releaseUrl
-              ? () => {
-                  void openUrl(info.releaseUrl).catch(() => {});
-                }
-              : undefined,
-          });
+      void checkForUpdate()
+        .then((update) => {
+          if (cancelled || !update) return;
+          setAvailableUpdate(update);
+          setUpdateOpen(true);
         })
         .catch(() => {
           // Update checks are best-effort and should never block app start.
@@ -243,6 +239,44 @@ export default function App() {
 
   const showToast = (text: string) => {
     setToast({ id: Date.now(), text });
+  };
+
+  const handleCheckForUpdates = async (): Promise<"available" | "current"> => {
+    const update = await checkForUpdate();
+    if (!update) return "current";
+
+    setAvailableUpdate(update);
+    setUpdateError(null);
+    setUpdateProgress(undefined);
+    setInstallingUpdate(false);
+    setUpdateOpen(true);
+    setSettingsOpen(false);
+    return "available";
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!availableUpdate || installingUpdate) return;
+
+    setInstallingUpdate(true);
+    setUpdateError(null);
+    setUpdateProgress(0);
+
+    try {
+      await installUpdate(availableUpdate, (progress) => {
+        setUpdateProgress(progress.percent);
+      });
+    } catch (error: unknown) {
+      setUpdateError(error instanceof Error ? error.message : String(error));
+      setInstallingUpdate(false);
+    }
+  };
+
+  const handleLaterUpdate = () => {
+    if (installingUpdate) return;
+    setUpdateOpen(false);
+    setAvailableUpdate(null);
+    setUpdateError(null);
+    setUpdateProgress(undefined);
   };
 
   const openGame = (game: Game) => {
@@ -562,7 +596,19 @@ export default function App() {
           onCancel={handleCancelSettings}
           onDismiss={handleDismissSettings}
           onSave={handleSaveSettings}
+          onCheckForUpdates={handleCheckForUpdates}
         />
+
+        {availableUpdate && updateOpen ? (
+          <UpdateDialog
+            update={availableUpdate}
+            installing={installingUpdate}
+            progress={updateProgress}
+            error={updateError}
+            onInstall={() => void handleInstallUpdate()}
+            onLater={handleLaterUpdate}
+          />
+        ) : null}
 
         {toast ? (
           <Toast

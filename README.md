@@ -35,6 +35,7 @@ recognizes. Stop it whenever you want.
 - No Discord login or account connection.
 - No game installation required.
 - Covers, favorites and filters stay ready between sessions.
+- Automatic updates from version 1.0.2 onward.
 - Runs on Windows 10 and 11.
 
 ## Add any detectable game

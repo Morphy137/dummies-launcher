@@ -122,6 +122,18 @@ export default {
     viewRelease: "Ver release",
     catalogSoon: "El catálogo es el siguiente paso del backend.",
   },
+  updates: {
+    title: "Actualización disponible",
+    body: "Dummies {{version}} está listo. ¿Instalarlo ahora? La app se reiniciará automáticamente.",
+    installNow: "Actualizar ahora",
+    installing: "Instalando…",
+    later: "Más tarde",
+    downloading: "Descargando actualización… {{percent}}%",
+    downloadingUnknown: "Descargando actualización…",
+    failed: "No se pudo instalar la actualización.",
+    checkFailed: "No se pudieron buscar actualizaciones.",
+    availableShort: "Hay una actualización disponible.",
+  },
   steam: {
     title: "Integración con Steam",
     note: "Crea un manifiesto ligero y una carpeta dummy en tu biblioteca local de Steam para que la quest se registre a través de Steam.",

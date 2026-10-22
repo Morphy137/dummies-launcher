@@ -122,6 +122,18 @@ export default {
     viewRelease: "View release",
     catalogSoon: "The catalog is the next backend step.",
   },
+  updates: {
+    title: "Update available",
+    body: "Dummies {{version}} is ready. Install it now? The app will restart automatically.",
+    installNow: "Update now",
+    installing: "Installing…",
+    later: "Later",
+    downloading: "Downloading update… {{percent}}%",
+    downloadingUnknown: "Downloading update…",
+    failed: "The update could not be installed.",
+    checkFailed: "Could not check for updates.",
+    availableShort: "An update is available.",
+  },
   steam: {
     title: "Steam integration",
     note: "Creates a lightweight app manifest and dummy folder in your local Steam library so the quest can be tracked through Steam.",

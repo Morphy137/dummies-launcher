@@ -1,6 +1,6 @@
 [package]
 name = "dummies"
-version = "1.0.1"
+version = "1.0.2"
 description = "A lightweight game presence launcher"
 authors = ["Morphy137"]
 license = "MIT"
@@ -22,6 +22,8 @@ log = "0.4"
 tauri = { version = "2.12.5", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 sys-locale = "0.3.2"
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
 mslnk = "0.1.8"
