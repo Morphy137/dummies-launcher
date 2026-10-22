@@ -9,6 +9,7 @@ import {
   type Game,
   type LaunchRequest,
   type LaunchResult,
+  type QuestTick,
   type Settings,
   type SyncResult,
 } from "../types";
@@ -119,6 +120,19 @@ export function onDummyExited(handler: (payload: DummyExitedPayload) => void): (
       unlisten = fn;
     },
   );
+
+  return () => {
+    unlisten?.();
+  };
+}
+
+export function onQuestTick(handler: (payload: QuestTick) => void): () => void {
+  if (!isTauri()) return () => {};
+
+  let unlisten: (() => void) | undefined;
+  void listen<QuestTick>("quest://tick", (event) => handler(event.payload)).then((fn) => {
+    unlisten = fn;
+  });
 
   return () => {
     unlisten?.();

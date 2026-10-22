@@ -9,6 +9,7 @@ export interface Game {
   isFavorite: boolean;
   running: boolean;
   remaining?: string;
+  phase?: "playing" | "syncing" | "complete";
   steamAppId?: string | null;
   iconHash?: string | null;
   coverImageHash?: string | null;
@@ -24,6 +25,11 @@ export interface Settings {
   showDummyWindow: boolean;
   minimizeToTray: boolean;
   cardsPerRow: number;
+  questTimerEnabled: boolean;
+  questDurationMinutes: number;
+  questSyncBufferSeconds: number;
+  autoStopOnComplete: boolean;
+  notifyOnComplete: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -32,6 +38,11 @@ export const DEFAULT_SETTINGS: Settings = {
   showDummyWindow: false,
   minimizeToTray: true,
   cardsPerRow: 6,
+  questTimerEnabled: true,
+  questDurationMinutes: 15,
+  questSyncBufferSeconds: 60,
+  autoStopOnComplete: true,
+  notifyOnComplete: true,
 };
 
 export interface Bootstrap {
@@ -58,6 +69,14 @@ export interface DummyExitedPayload {
   key: string;
   name: string;
   code?: number;
+}
+
+export interface QuestTick {
+  key: string;
+  name: string;
+  remainingSeconds: number;
+  phase: "playing" | "syncing" | "complete";
+  percent: number;
 }
 
 export interface DatabaseGame {

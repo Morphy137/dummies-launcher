@@ -22,6 +22,7 @@ import {
   getBootstrap,
   launchDummy,
   onDummyExited,
+  onQuestTick,
   removeGame,
   saveSettings,
   stopDummy,
@@ -35,12 +36,20 @@ import {
   type Game,
   type GameFilter,
   makeGameKey,
+  type QuestTick,
   type Settings,
 } from "./types";
 
 type ViewMode = "grid" | "list";
 
 const filters: GameFilter[] = ["all", "favorites", "active"];
+
+function formatRemaining(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+}
 
 const darkFluentTheme = {
   ...webDarkTheme,
@@ -70,6 +79,7 @@ export default function App() {
   const [settingsSnapshot, setSettingsSnapshot] = useState<Settings>(DEFAULT_SETTINGS);
   const [systemLocale, setSystemLocale] = useState("en");
   const [runningKeys, setRunningKeys] = useState<Set<string>>(() => new Set());
+  const [questTicks, setQuestTicks] = useState<Record<string, QuestTick>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
@@ -119,7 +129,20 @@ export default function App() {
         next.delete(payload.key);
         return next;
       });
+      setQuestTicks((current) => {
+        const next = { ...current };
+        delete next[payload.key];
+        return next;
+      });
       setBusyKey((current) => (current === payload.key ? null : current));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    return onQuestTick((tick) => {
+      setQuestTicks((current) => ({ ...current, [tick.key]: tick }));
     });
   }, []);
 
@@ -133,23 +156,36 @@ export default function App() {
     const term = query.trim().toLowerCase();
 
     return library
-      .map((game) => ({
-        ...game,
-        running: runningKeys.has(makeGameKey(game)),
-      }))
+      .map((game) => {
+        const key = makeGameKey(game);
+        const tick = questTicks[key];
+        return {
+          ...game,
+          running: runningKeys.has(key),
+          remaining: tick ? formatRemaining(tick.remainingSeconds) : undefined,
+          phase: tick?.phase,
+        };
+      })
       .filter((game) => {
         if (filter === "favorites" && !game.isFavorite) return false;
         if (filter === "active" && !game.running) return false;
         if (term && !game.name.toLowerCase().includes(term)) return false;
         return true;
       });
-  }, [filter, library, query, runningKeys]);
+  }, [filter, library, query, questTicks, runningKeys]);
 
   const selectedGame = useMemo(() => {
     if (!selectedKey) return null;
     const game = library.find((entry) => makeGameKey(entry) === selectedKey);
-    return game ? { ...game, running: runningKeys.has(selectedKey) } : null;
-  }, [library, runningKeys, selectedKey]);
+    if (!game) return null;
+    const tick = questTicks[selectedKey];
+    return {
+      ...game,
+      running: runningKeys.has(selectedKey),
+      remaining: tick ? formatRemaining(tick.remainingSeconds) : undefined,
+      phase: tick?.phase,
+    };
+  }, [library, questTicks, runningKeys, selectedKey]);
 
   const showToast = (text: string) => {
     setToast({ id: Date.now(), text });
@@ -190,6 +226,11 @@ export default function App() {
         setRunningKeys((current) => {
           const next = new Set(current);
           next.delete(gameKey);
+          return next;
+        });
+        setQuestTicks((current) => {
+          const next = { ...current };
+          delete next[gameKey];
           return next;
         });
       } else {

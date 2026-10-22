@@ -153,6 +153,83 @@ export default function SettingsDialog({
             </section>
 
             <section className="settings-section">
+              <div className="settings-section-title">{t("settings.questAutomation")}</div>
+
+              <ToggleRow
+                label={t("settings.questTimer")}
+                description={t("settings.questTimerDesc")}
+                checked={draft.questTimerEnabled}
+                onChange={(questTimerEnabled) => updateDraft({ ...draft, questTimerEnabled })}
+              />
+
+              <div className="settings-row">
+                <span className="settings-row__text">
+                  <span className="settings-row__label">{t("settings.questDuration")}</span>
+                  <span className="settings-row__desc">{t("settings.questDurationDesc")}</span>
+                </span>
+                <select
+                  className="settings-select"
+                  value={draft.questDurationMinutes}
+                  onChange={(event) =>
+                    updateDraft({
+                      ...draft,
+                      questDurationMinutes: Number(event.target.value),
+                    })
+                  }
+                  aria-label={t("settings.questDuration")}
+                  disabled={!draft.questTimerEnabled}
+                >
+                  {[10, 15, 20, 30].map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {t("settings.minutesValue", { count: minutes })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="settings-row">
+                <span className="settings-row__text">
+                  <span className="settings-row__label">{t("settings.questSyncBuffer")}</span>
+                  <span className="settings-row__desc">{t("settings.questSyncBufferDesc")}</span>
+                </span>
+                <select
+                  className="settings-select"
+                  value={draft.questSyncBufferSeconds}
+                  onChange={(event) =>
+                    updateDraft({
+                      ...draft,
+                      questSyncBufferSeconds: Number(event.target.value),
+                    })
+                  }
+                  aria-label={t("settings.questSyncBuffer")}
+                  disabled={!draft.questTimerEnabled}
+                >
+                  {[0, 30, 60, 90].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {seconds === 0
+                        ? t("settings.off")
+                        : t("settings.secondsValue", { count: seconds })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <ToggleRow
+                label={t("settings.autoStop")}
+                description={t("settings.autoStopDesc")}
+                checked={draft.autoStopOnComplete}
+                onChange={(autoStopOnComplete) => updateDraft({ ...draft, autoStopOnComplete })}
+              />
+
+              <ToggleRow
+                label={t("settings.notify")}
+                description={t("settings.notifyDesc")}
+                checked={draft.notifyOnComplete}
+                onChange={(notifyOnComplete) => updateDraft({ ...draft, notifyOnComplete })}
+              />
+            </section>
+
+            <section className="settings-section">
               <div className="settings-section-title">{t("settings.dummyProcess")}</div>
 
               <ToggleRow

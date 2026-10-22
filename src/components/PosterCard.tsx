@@ -39,6 +39,12 @@ export default function PosterCard({
   const cover = candidates[candidateIndex];
   const fallback = getFallbackArt(game.name);
   const initials = getGameInitials(game.name);
+  const phaseLabel =
+    game.phase === "syncing"
+      ? t("game.syncing")
+      : game.phase === "complete"
+        ? t("game.complete")
+        : t("game.running");
   const artStyle: ArtStyle = {
     "--art-a": fallback[0],
     "--art-b": fallback[1],
@@ -88,7 +94,7 @@ export default function PosterCard({
         {game.running ? (
           <span className="running-badge">
             <span className="status-dot" />
-            <span>{t("game.running")}</span>
+            <span>{phaseLabel}</span>
             {game.remaining ? <span className="running-badge__timer">{game.remaining}</span> : null}
           </span>
         ) : null}
