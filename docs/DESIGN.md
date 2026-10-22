@@ -3,7 +3,7 @@ version: alpha
 name: Dummies
 status: draft
 description: A dark-first, Raycast-inspired desktop system for a lightweight game-presence launcher. Near-black canvas, four-step surface ladder, 1px hairlines, Inter with ss03, a single high-contrast CTA, and one red diagonal-stripe moment. Fluent 2 supplies interaction, accessibility, and motion behavior; the visual language stays restrained and product-like.
-website: "https://github.com/Morphy137/discord-dummies-launcher"
+website: "https://github.com/Morphy137/dummies-launcher"
 tags:
   - "Desktop"
   - "Productivity & SaaS"
