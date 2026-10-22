@@ -1,9 +1,9 @@
 import {
+  Heart20Filled,
+  Heart20Regular,
   Image20Regular,
   MoreHorizontal20Regular,
   Play20Filled,
-  Star20Filled,
-  Star20Regular,
   Stop20Filled,
 } from "@fluentui/react-icons";
 import { type CSSProperties, useEffect, useState } from "react";
@@ -109,7 +109,7 @@ export default function PosterCard({
           aria-label={game.isFavorite ? t("game.unfavorite") : t("game.favorite")}
           title={game.isFavorite ? t("game.unfavorite") : t("game.favorite")}
         >
-          {game.isFavorite ? <Star20Filled /> : <Star20Regular />}
+          {game.isFavorite ? <Heart20Filled /> : <Heart20Regular />}
         </button>
 
         <div className="poster-card__overlay">

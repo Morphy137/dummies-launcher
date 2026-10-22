@@ -1,3 +1,4 @@
+import { Add16Filled } from "@fluentui/react-icons";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { type Game, makeGameKey } from "../types";
@@ -30,10 +31,10 @@ export default function PosterGrid({
   if (games.length === 0) {
     return (
       <section className="empty-state">
-        <div className="red-stripe" aria-hidden="true" />
         <h2 className="empty-state__title">{t("library.emptyTitle")}</h2>
         <p className="empty-state__body">{t("library.emptyBody")}</p>
         <button type="button" className="primary-button" onClick={onAddGame}>
+          <Add16Filled aria-hidden="true" />
           {t("library.emptyAction")}
         </button>
       </section>

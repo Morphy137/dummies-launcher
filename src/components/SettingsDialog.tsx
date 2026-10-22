@@ -5,6 +5,8 @@ import {
   DialogContent,
   DialogSurface,
   DialogTitle,
+  Dropdown,
+  Option,
 } from "@fluentui/react-components";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
@@ -27,6 +29,50 @@ interface ToggleRowProps {
   description: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+}
+
+interface DropdownOption {
+  value: string;
+  label: string;
+}
+
+interface SettingsDropdownProps {
+  value: string;
+  options: DropdownOption[];
+  onChange: (value: string) => void;
+  ariaLabel: string;
+  disabled?: boolean;
+}
+
+function SettingsDropdown({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+  disabled,
+}: SettingsDropdownProps) {
+  const selected = options.find((option) => option.value === value);
+
+  return (
+    <Dropdown
+      className="settings-dropdown"
+      button={{ className: "settings-dropdown-trigger" }}
+      listbox={{ className: "settings-dropdown-listbox" }}
+      value={selected?.label ?? ""}
+      selectedOptions={[value]}
+      onOptionSelect={(_, data) => {
+        if (data.optionValue !== undefined) onChange(data.optionValue);
+      }}
+      aria-label={ariaLabel}
+      disabled={disabled}
+    >
+      {options.map((option) => (
+        <Option key={option.value} value={option.value}>
+          {option.label}
+        </Option>
+      ))}
+    </Dropdown>
+  );
 }
 
 function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
@@ -126,36 +172,32 @@ export default function SettingsDialog({
                 <span className="settings-row__text">
                   <span className="settings-row__label">{t("settings.theme")}</span>
                 </span>
-                <select
-                  className="settings-select"
+                <SettingsDropdown
                   value={draft.theme}
-                  onChange={(event) =>
-                    updateDraft({ ...draft, theme: event.target.value as ThemeMode })
-                  }
-                  aria-label={t("settings.theme")}
-                >
-                  <option value="system">{t("settings.themeSystem")}</option>
-                  <option value="dark">{t("settings.themeDark")}</option>
-                  <option value="light">{t("settings.themeLight")}</option>
-                </select>
+                  options={[
+                    { value: "system", label: t("settings.themeSystem") },
+                    { value: "dark", label: t("settings.themeDark") },
+                    { value: "light", label: t("settings.themeLight") },
+                  ]}
+                  onChange={(value) => updateDraft({ ...draft, theme: value as ThemeMode })}
+                  ariaLabel={t("settings.theme")}
+                />
               </div>
 
               <div className="settings-row">
                 <span className="settings-row__text">
                   <span className="settings-row__label">{t("settings.language")}</span>
                 </span>
-                <select
-                  className="settings-select"
+                <SettingsDropdown
                   value={draft.language}
-                  onChange={(event) =>
-                    updateDraft({ ...draft, language: event.target.value as LanguageMode })
-                  }
-                  aria-label={t("settings.language")}
-                >
-                  <option value="system">{t("settings.languageSystem")}</option>
-                  <option value="en">{t("settings.languageEnglish")}</option>
-                  <option value="es">{t("settings.languageSpanish")}</option>
-                </select>
+                  options={[
+                    { value: "system", label: t("settings.languageSystem") },
+                    { value: "en", label: t("settings.languageEnglish") },
+                    { value: "es", label: t("settings.languageSpanish") },
+                  ]}
+                  onChange={(value) => updateDraft({ ...draft, language: value as LanguageMode })}
+                  ariaLabel={t("settings.language")}
+                />
               </div>
 
               <div className="settings-row">
@@ -163,20 +205,15 @@ export default function SettingsDialog({
                   <span className="settings-row__label">{t("settings.cardsPerRow")}</span>
                   <span className="settings-row__desc">{t("settings.cardsPerRowDesc")}</span>
                 </span>
-                <select
-                  className="settings-select"
-                  value={draft.cardsPerRow}
-                  onChange={(event) =>
-                    updateDraft({ ...draft, cardsPerRow: Number(event.target.value) })
-                  }
-                  aria-label={t("settings.cardsPerRow")}
-                >
-                  {[4, 5, 6, 7, 8].map((count) => (
-                    <option key={count} value={count}>
-                      {t("settings.cardsPerRowValue", { count })}
-                    </option>
-                  ))}
-                </select>
+                <SettingsDropdown
+                  value={String(draft.cardsPerRow)}
+                  options={[4, 5, 6, 7, 8].map((count) => ({
+                    value: String(count),
+                    label: t("settings.cardsPerRowValue", { count }),
+                  }))}
+                  onChange={(value) => updateDraft({ ...draft, cardsPerRow: Number(value) })}
+                  ariaLabel={t("settings.cardsPerRow")}
+                />
               </div>
             </section>
 
@@ -195,24 +232,21 @@ export default function SettingsDialog({
                   <span className="settings-row__label">{t("settings.questDuration")}</span>
                   <span className="settings-row__desc">{t("settings.questDurationDesc")}</span>
                 </span>
-                <select
-                  className="settings-select"
-                  value={draft.questDurationMinutes}
-                  onChange={(event) =>
+                <SettingsDropdown
+                  value={String(draft.questDurationMinutes)}
+                  options={[10, 15, 20, 30].map((minutes) => ({
+                    value: String(minutes),
+                    label: t("settings.minutesValue", { count: minutes }),
+                  }))}
+                  onChange={(value) =>
                     updateDraft({
                       ...draft,
-                      questDurationMinutes: Number(event.target.value),
+                      questDurationMinutes: Number(value),
                     })
                   }
-                  aria-label={t("settings.questDuration")}
+                  ariaLabel={t("settings.questDuration")}
                   disabled={!draft.questTimerEnabled}
-                >
-                  {[10, 15, 20, 30].map((minutes) => (
-                    <option key={minutes} value={minutes}>
-                      {t("settings.minutesValue", { count: minutes })}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               <div className="settings-row">
@@ -220,26 +254,24 @@ export default function SettingsDialog({
                   <span className="settings-row__label">{t("settings.questSyncBuffer")}</span>
                   <span className="settings-row__desc">{t("settings.questSyncBufferDesc")}</span>
                 </span>
-                <select
-                  className="settings-select"
-                  value={draft.questSyncBufferSeconds}
-                  onChange={(event) =>
+                <SettingsDropdown
+                  value={String(draft.questSyncBufferSeconds)}
+                  options={[0, 30, 60, 90].map((seconds) => ({
+                    value: String(seconds),
+                    label:
+                      seconds === 0
+                        ? t("settings.off")
+                        : t("settings.secondsValue", { count: seconds }),
+                  }))}
+                  onChange={(value) =>
                     updateDraft({
                       ...draft,
-                      questSyncBufferSeconds: Number(event.target.value),
+                      questSyncBufferSeconds: Number(value),
                     })
                   }
-                  aria-label={t("settings.questSyncBuffer")}
+                  ariaLabel={t("settings.questSyncBuffer")}
                   disabled={!draft.questTimerEnabled}
-                >
-                  {[0, 30, 60, 90].map((seconds) => (
-                    <option key={seconds} value={seconds}>
-                      {seconds === 0
-                        ? t("settings.off")
-                        : t("settings.secondsValue", { count: seconds })}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               <ToggleRow

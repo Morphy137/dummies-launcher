@@ -1,6 +1,6 @@
 import { FluentProvider, webDarkTheme, webLightTheme } from "@fluentui/react-components";
 import {
-  Add20Regular,
+  Add16Filled,
   Grid20Regular,
   List20Regular,
   Search20Regular,
@@ -444,7 +444,7 @@ export default function App() {
                   className="primary-button"
                   onClick={() => setAddGameOpen(true)}
                 >
-                  <Add20Regular />
+                  <Add16Filled aria-hidden="true" />
                   {t("library.addGame")}
                 </button>
               </div>

@@ -2,12 +2,12 @@ import {
   ArrowLeft20Regular,
   Delete20Regular,
   Edit20Regular,
+  Heart20Filled,
+  Heart20Regular,
   Image20Regular,
   Open20Regular,
   Play20Filled,
   Settings20Regular,
-  Star20Filled,
-  Star20Regular,
   Stop20Filled,
 } from "@fluentui/react-icons";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
@@ -164,7 +164,7 @@ export default function GameDetail({
                 aria-label={game.isFavorite ? t("game.unfavorite") : t("game.favorite")}
                 title={game.isFavorite ? t("game.unfavorite") : t("game.favorite")}
               >
-                {game.isFavorite ? <Star20Filled /> : <Star20Regular />}
+                {game.isFavorite ? <Heart20Filled /> : <Heart20Regular />}
               </button>
             </div>
           </div>

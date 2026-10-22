@@ -1,4 +1,4 @@
-import { Star20Filled, Star20Regular } from "@fluentui/react-icons";
+import { Heart20Filled, Heart20Regular } from "@fluentui/react-icons";
 import { useTranslation } from "react-i18next";
 import { type Game, makeGameKey } from "../types";
 
@@ -21,8 +21,11 @@ export default function GameList({ games }: GameListProps) {
               ? `${t("game.running")}${game.remaining ? ` · ${game.remaining}` : ""}`
               : ""}
           </span>
-          <span className="game-row__favorite" aria-hidden="true">
-            {game.isFavorite ? <Star20Filled /> : <Star20Regular />}
+          <span
+            className={`game-row__favorite${game.isFavorite ? " is-active" : ""}`}
+            aria-hidden="true"
+          >
+            {game.isFavorite ? <Heart20Filled /> : <Heart20Regular />}
           </span>
         </div>
       ))}
