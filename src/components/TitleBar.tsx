@@ -1,6 +1,5 @@
 import {
   Dismiss16Regular,
-  Games20Filled,
   Square16Regular,
   SquareMultiple16Regular,
   Subtract16Regular,
@@ -46,7 +45,7 @@ export default function TitleBar() {
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the drag region mirrors the native title bar double-click behavior. */}
       <div className="title-bar__drag" data-tauri-drag-region onDoubleClick={toggleMaximize}>
         <span className="app-mark" data-tauri-drag-region aria-hidden="true">
-          <Games20Filled />
+          <img src="/app-icon.svg" alt="" />
         </span>
         <span className="title-bar__title" data-tauri-drag-region>
           {t("app.title")}
