@@ -995,6 +995,112 @@ button {
   background: var(--surface);
 }
 
+/* ── Steam dialog ─────────────────────────────────────────── */
+
+.steam-dialog,
+.fui-DialogSurface.steam-dialog {
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: none;
+  color: var(--text-primary);
+}
+
+.steam-body,
+.fui-DialogBody.steam-body {
+  padding: 0;
+}
+
+.steam-title,
+.fui-DialogTitle.steam-title {
+  margin: 0;
+  padding: 20px 24px 0;
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+}
+
+.steam-content,
+.fui-DialogContent.steam-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 24px 20px;
+}
+
+.steam-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.steam-path {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.steam-path__value {
+  overflow: hidden;
+  color: var(--text-body);
+  font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.steam-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.steam-input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  outline: none;
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.steam-input:focus {
+  border-color: var(--hairline-strong);
+}
+
+.steam-actions,
+.fui-DialogActions.steam-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.steam-actions__spacer {
+  flex: 1;
+}
+
 /* ── Detail ────────────────────────────────────────────────── */
 
 .library--detail {
@@ -1248,6 +1354,17 @@ button {
 
 .detail__input:focus {
   border-color: var(--hairline-strong);
+}
+
+.detail__row .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail__row .secondary-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .detail__danger {
@@ -1511,6 +1628,20 @@ button {
 
 .settings-select:focus {
   border-color: var(--hairline-strong);
+}
+
+.settings-update-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+  color: var(--text-body);
+  font-size: 12px;
 }
 
 .settings-note {

@@ -14,17 +14,21 @@ import GameDetail from "./components/GameDetail";
 import GameList from "./components/GameList";
 import PosterGrid from "./components/PosterGrid";
 import SettingsDialog from "./components/SettingsDialog";
+import SteamDialog from "./components/SteamDialog";
 import TitleBar from "./components/TitleBar";
 import Toast from "./components/Toast";
 import i18n from "./i18n";
 import {
   addGame,
+  createShortcut,
   getBootstrap,
   launchDummy,
   onDummyExited,
   onQuestTick,
   removeGame,
+  removeSteamIntegration,
   saveSettings,
+  setupSteamIntegration,
   stopDummy,
   toggleFavorite,
   updateGameExecutable,
@@ -38,6 +42,7 @@ import {
   makeGameKey,
   type QuestTick,
   type Settings,
+  type SteamSetupRequest,
 } from "./types";
 
 type ViewMode = "grid" | "list";
@@ -74,9 +79,11 @@ export default function App() {
   const [view, setView] = useState<ViewMode>("grid");
   const [library, setLibrary] = useState<Game[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [steamGameKey, setSteamGameKey] = useState<string | null>(null);
   const [addGameOpen, setAddGameOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsSnapshot, setSettingsSnapshot] = useState<Settings>(DEFAULT_SETTINGS);
+  const [version, setVersion] = useState("1.0.0");
   const [systemLocale, setSystemLocale] = useState("en");
   const [runningKeys, setRunningKeys] = useState<Set<string>>(() => new Set());
   const [questTicks, setQuestTicks] = useState<Record<string, QuestTick>>({});
@@ -102,6 +109,7 @@ export default function App() {
         setSystemLocale(data.systemLocale);
         setRunningKeys(new Set(data.runningKeys));
         setLibrary(data.library);
+        setVersion(data.version);
       })
       .catch((error: unknown) => {
         if (!cancelled) {
@@ -173,6 +181,12 @@ export default function App() {
         return true;
       });
   }, [filter, library, query, questTicks, runningKeys]);
+
+  const steamGame = useMemo(() => {
+    if (!steamGameKey) return null;
+    const game = library.find((entry) => makeGameKey(entry) === steamGameKey);
+    return game ? { ...game, running: runningKeys.has(steamGameKey) } : null;
+  }, [library, runningKeys, steamGameKey]);
 
   const selectedGame = useMemo(() => {
     if (!selectedKey) return null;
@@ -263,6 +277,56 @@ export default function App() {
     }
   };
 
+  const handleSaveSteam = async (request: SteamSetupRequest) => {
+    try {
+      const result = await setupSteamIntegration(request);
+      setLibrary((current) =>
+        current.map((entry) =>
+          makeGameKey(entry) === makeGameKey(result.updatedGame) ? result.updatedGame : entry,
+        ),
+      );
+      setSteamGameKey(null);
+      showToast(t("notices.steamSaved"));
+    } catch (error: unknown) {
+      showToast(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  };
+
+  const handleRemoveSteam = async () => {
+    if (!steamGame) return;
+    try {
+      const result = await removeSteamIntegration(
+        steamGame.appId,
+        steamGame.steamAppId,
+        steamGame.installDir,
+      );
+      if (result.updatedGame) {
+        setLibrary((current) =>
+          current.map((entry) =>
+            makeGameKey(entry) === makeGameKey(result.updatedGame as Game)
+              ? (result.updatedGame as Game)
+              : entry,
+          ),
+        );
+      }
+      setSteamGameKey(null);
+      showToast(t("notices.steamRemoved"));
+    } catch (error: unknown) {
+      showToast(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  };
+
+  const handleCreateShortcut = async (game: Game) => {
+    try {
+      const path = await createShortcut(game.appId, game.exe);
+      showToast(t("notices.shortcutCreated", { path }));
+    } catch (error: unknown) {
+      showToast(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const handleDeleteGame = async (game: Game) => {
     try {
       await removeGame(game.appId, game.exe);
@@ -327,6 +391,8 @@ export default function App() {
               game={selectedGame}
               busy={busyKey === makeGameKey(selectedGame)}
               onBack={() => setSelectedKey(null)}
+              onConfigureSteam={(game) => setSteamGameKey(makeGameKey(game))}
+              onCreateShortcut={handleCreateShortcut}
               onDelete={handleDeleteGame}
               onToggleFavorite={handleToggleFavorite}
               onToggleRunning={handleToggleRunning}
@@ -428,9 +494,20 @@ export default function App() {
 
         <AddGameDialog open={addGameOpen} onOpenChange={setAddGameOpen} onAdd={handleAddGame} />
 
+        <SteamDialog
+          open={steamGame !== null}
+          game={steamGame}
+          onOpenChange={(open) => {
+            if (!open) setSteamGameKey(null);
+          }}
+          onRemove={handleRemoveSteam}
+          onSave={handleSaveSteam}
+        />
+
         <SettingsDialog
           open={settingsOpen}
           settings={settings}
+          version={version}
           onPreview={handlePreviewSettings}
           onCancel={handleCancelSettings}
           onDismiss={handleDismissSettings}

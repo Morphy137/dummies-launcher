@@ -11,7 +11,11 @@ import {
   type LaunchResult,
   type QuestTick,
   type Settings,
+  type SteamRemoveResult,
+  type SteamSetupRequest,
+  type SteamSetupResult,
   type SyncResult,
+  type UpdateInfo,
 } from "../types";
 
 function browserBootstrap(): Bootstrap {
@@ -87,6 +91,48 @@ export async function updateGameExecutable(
 ): Promise<Game> {
   if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
   return invoke<Game>("update_game_executable", { appId, oldExe, newExe });
+}
+
+export async function createShortcut(appId: string, exe: string): Promise<string> {
+  if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
+  return invoke<string>("create_shortcut", { appId, exe });
+}
+
+export async function getSteamPath(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("get_steam_path");
+}
+
+export async function setupSteamIntegration(request: SteamSetupRequest): Promise<SteamSetupResult> {
+  if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
+  return invoke<SteamSetupResult>("setup_steam_integration", { ...request });
+}
+
+export async function removeSteamIntegration(
+  appId: string,
+  steamAppId?: string | null,
+  installDir?: string | null,
+): Promise<SteamRemoveResult> {
+  if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
+  return invoke<SteamRemoveResult>("remove_steam_integration", {
+    appId,
+    steamAppId: steamAppId ?? null,
+    installDir: installDir ?? null,
+  });
+}
+
+export async function checkForUpdates(): Promise<UpdateInfo> {
+  if (!isTauri()) {
+    return {
+      updateAvailable: false,
+      currentVersion: "dev",
+      latestVersion: "dev",
+      releaseUrl: "",
+      releaseName: "",
+      releaseNotes: "",
+    };
+  }
+  return invoke<UpdateInfo>("check_for_updates");
 }
 
 export async function launchDummy(request: LaunchRequest): Promise<LaunchResult> {

@@ -79,6 +79,35 @@ export interface QuestTick {
   percent: number;
 }
 
+export interface SteamSetupRequest {
+  appId: string;
+  steamAppId: string;
+  installDir: string;
+  exe: string;
+}
+
+export interface SteamSetupResult {
+  manifestPath: string;
+  destExePath: string;
+  steamPath: string;
+  updatedGame: Game;
+}
+
+export interface SteamRemoveResult {
+  removedManifest: boolean;
+  removedFolder: boolean;
+  updatedGame?: Game | null;
+}
+
+export interface UpdateInfo {
+  updateAvailable: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  releaseUrl: string;
+  releaseName: string;
+  releaseNotes: string;
+}
+
 export interface DatabaseGame {
   id: string;
   name: string;

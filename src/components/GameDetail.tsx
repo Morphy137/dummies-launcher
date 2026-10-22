@@ -3,7 +3,9 @@ import {
   Delete20Regular,
   Edit20Regular,
   Image20Regular,
+  Open20Regular,
   Play20Filled,
+  Settings20Regular,
   Star20Filled,
   Star20Regular,
   Stop20Filled,
@@ -17,6 +19,8 @@ interface GameDetailProps {
   game: Game;
   busy: boolean;
   onBack: () => void;
+  onConfigureSteam: (game: Game) => void;
+  onCreateShortcut: (game: Game) => Promise<void>;
   onDelete: (game: Game) => Promise<void>;
   onToggleFavorite: (game: Game) => void;
   onToggleRunning: (game: Game) => void;
@@ -27,6 +31,8 @@ export default function GameDetail({
   game,
   busy,
   onBack,
+  onConfigureSteam,
+  onCreateShortcut,
   onDelete,
   onToggleFavorite,
   onToggleRunning,
@@ -223,11 +229,36 @@ export default function GameDetail({
 
         <div className="detail__row">
           <span className="detail__label">{t("detail.steam")}</span>
-          <span
-            className={`detail__value${game.requiresSteam && !game.useSteamPath ? " is-warning" : ""}`}
+          <div className="detail__value-row">
+            <span
+              className={`detail__value${game.requiresSteam && !game.useSteamPath ? " is-warning" : ""}`}
+            >
+              {steamStatus}
+            </span>
+            {game.steamAppId || game.requiresSteam || game.useSteamPath ? (
+              <button
+                type="button"
+                className="icon-button icon-button--small"
+                onClick={() => onConfigureSteam(game)}
+                aria-label={t("steam.title")}
+                title={t("steam.title")}
+              >
+                <Settings20Regular />
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="detail__row">
+          <span className="detail__label">{t("detail.shortcut")}</span>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void onCreateShortcut(game)}
           >
-            {steamStatus}
-          </span>
+            <Open20Regular />
+            {t("detail.createShortcut")}
+          </button>
         </div>
 
         <div className="detail__danger">

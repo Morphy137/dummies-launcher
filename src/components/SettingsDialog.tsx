@@ -6,13 +6,16 @@ import {
   DialogSurface,
   DialogTitle,
 } from "@fluentui/react-components";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { LanguageMode, Settings, ThemeMode } from "../types";
+import { checkForUpdates } from "../lib/backend";
+import type { LanguageMode, Settings, ThemeMode, UpdateInfo } from "../types";
 
 interface SettingsDialogProps {
   open: boolean;
   settings: Settings;
+  version: string;
   onPreview: (settings: Settings) => void;
   onCancel: () => void;
   onDismiss: () => void;
@@ -50,6 +53,7 @@ function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
 export default function SettingsDialog({
   open,
   settings,
+  version,
   onPreview,
   onCancel,
   onDismiss,
@@ -58,6 +62,9 @@ export default function SettingsDialog({
   const { t } = useTranslation();
   const [draft, setDraft] = useState<Settings>(settings);
   const [saving, setSaving] = useState(false);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setDraft(settings);
@@ -74,6 +81,27 @@ export default function SettingsDialog({
       await onSave(draft);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCheckUpdates = async () => {
+    setCheckingUpdates(true);
+    setUpdateError(null);
+    try {
+      setUpdateInfo(await checkForUpdates());
+    } catch (error: unknown) {
+      setUpdateError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  const openRelease = async () => {
+    if (!updateInfo?.releaseUrl) return;
+    try {
+      await openUrl(updateInfo.releaseUrl);
+    } catch (error: unknown) {
+      setUpdateError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -245,6 +273,46 @@ export default function SettingsDialog({
                 checked={draft.minimizeToTray}
                 onChange={(minimizeToTray) => updateDraft({ ...draft, minimizeToTray })}
               />
+            </section>
+
+            <section className="settings-section">
+              <div className="settings-section-title">{t("settings.updates")}</div>
+
+              <div className="settings-row">
+                <span className="settings-row__text">
+                  <span className="settings-row__label">{t("settings.version")}</span>
+                  <span className="settings-row__desc">v{version}</span>
+                </span>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void handleCheckUpdates()}
+                  disabled={checkingUpdates}
+                >
+                  {checkingUpdates ? t("settings.checking") : t("settings.checkUpdates")}
+                </button>
+              </div>
+
+              {updateInfo ? (
+                <div className="settings-update-status">
+                  <span>
+                    {updateInfo.updateAvailable
+                      ? t("settings.updateAvailable", { version: updateInfo.latestVersion })
+                      : t("settings.upToDate")}
+                  </span>
+                  {updateInfo.updateAvailable ? (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void openRelease()}
+                    >
+                      {t("settings.openRelease")}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {updateError ? <div className="catalog-error">{updateError}</div> : null}
             </section>
 
             <p className="settings-note">{t("settings.note")}</p>
