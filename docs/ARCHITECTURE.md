@@ -229,7 +229,8 @@ Use the Tauri app data directory based on `com.morphy137.dummies`:
 - `%APPDATA%\com.morphy137.dummies\gamelist.json` (implemented)
 - `%APPDATA%\com.morphy137.dummies\games\<appId>\<exe path>` (implemented)
 - `%LOCALAPPDATA%\com.morphy137.dummies\logs\`
-- `%LOCALAPPDATA%\com.morphy137.dummies\cache\` (optional cover cache)
+- WebView2 Cache Storage for downloaded cover images (implemented in
+  `src/lib/coverCache.ts`); failed candidates are remembered in memory for the session.
 
 Writes are atomic: write to a temporary file in the same directory, flush, then rename.
 Keep a `.bak` of the previous file when overwriting.

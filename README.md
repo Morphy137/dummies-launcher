@@ -103,6 +103,8 @@ What works today:
   app data `games/` folder and managed by the Tauri backend.
 - Resizable dummy window with a 240x270 default and 180x210–640x720 limits; the
   minimize and close icons stay centered in their controls.
+- Persistent cover cache: filters, grid/list and detail views reuse downloaded posters;
+  failed cover candidates are remembered for the current app session.
 - Tray menu with running games, show/hide, stop, stop all, open and quit.
 - Quest countdown, sync buffer, auto-stop and desktop notification.
 - System light/dark theme, manual theme override and English/Spanish UI.
