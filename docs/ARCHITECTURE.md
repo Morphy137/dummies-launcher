@@ -44,7 +44,8 @@ implementations stay in `legacy/` (or on a branch) until feature parity is verif
   quest timers, notifications and manual GitHub update check are implemented.
 - NSIS installer is 3.79 MiB; portable ZIP is 5.02 MiB; release app executable is
   14.22 MiB.
-- Signed auto-updater and code signing are pending; portable packaging is implemented.
+- Signed auto-updater is implemented for 1.0.2 and later; Windows code signing is still
+  pending. Portable packaging is implemented.
 
 ## Goals
 

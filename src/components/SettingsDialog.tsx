@@ -8,11 +8,9 @@ import {
   Dropdown,
   Option,
 } from "@fluentui/react-components";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { checkForUpdates } from "../lib/backend";
-import type { LanguageMode, Settings, ThemeMode, UpdateInfo } from "../types";
+import type { LanguageMode, Settings, ThemeMode } from "../types";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -22,6 +20,7 @@ interface SettingsDialogProps {
   onCancel: () => void;
   onDismiss: () => void;
   onSave: (settings: Settings) => Promise<void>;
+  onCheckForUpdates: () => Promise<"available" | "current">;
 }
 
 interface ToggleRowProps {
@@ -104,12 +103,13 @@ export default function SettingsDialog({
   onCancel,
   onDismiss,
   onSave,
+  onCheckForUpdates,
 }: SettingsDialogProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<Settings>(settings);
   const [saving, setSaving] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<"available" | "current" | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -133,21 +133,13 @@ export default function SettingsDialog({
   const handleCheckUpdates = async () => {
     setCheckingUpdates(true);
     setUpdateError(null);
+    setUpdateStatus(null);
     try {
-      setUpdateInfo(await checkForUpdates());
+      setUpdateStatus(await onCheckForUpdates());
     } catch (error: unknown) {
       setUpdateError(error instanceof Error ? error.message : String(error));
     } finally {
       setCheckingUpdates(false);
-    }
-  };
-
-  const openRelease = async () => {
-    if (!updateInfo?.releaseUrl) return;
-    try {
-      await openUrl(updateInfo.releaseUrl);
-    } catch (error: unknown) {
-      setUpdateError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -325,26 +317,21 @@ export default function SettingsDialog({
                 </button>
               </div>
 
-              {updateInfo ? (
+              {updateStatus ? (
                 <div className="settings-update-status">
                   <span>
-                    {updateInfo.updateAvailable
-                      ? t("settings.updateAvailable", { version: updateInfo.latestVersion })
+                    {updateStatus === "available"
+                      ? t("updates.availableShort")
                       : t("settings.upToDate")}
                   </span>
-                  {updateInfo.updateAvailable ? (
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => void openRelease()}
-                    >
-                      {t("settings.openRelease")}
-                    </button>
-                  ) : null}
                 </div>
               ) : null}
 
-              {updateError ? <div className="catalog-error">{updateError}</div> : null}
+              {updateError ? (
+                <div className="catalog-error">
+                  {t("updates.checkFailed")} {updateError}
+                </div>
+              ) : null}
             </section>
 
             <p className="settings-note">{t("settings.note")}</p>

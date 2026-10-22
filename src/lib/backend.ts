@@ -15,7 +15,6 @@ import {
   type SteamSetupRequest,
   type SteamSetupResult,
   type SyncResult,
-  type UpdateInfo,
 } from "../types";
 
 function browserBootstrap(): Bootstrap {
@@ -119,20 +118,6 @@ export async function removeSteamIntegration(
     steamAppId: steamAppId ?? null,
     installDir: installDir ?? null,
   });
-}
-
-export async function checkForUpdates(): Promise<UpdateInfo> {
-  if (!isTauri()) {
-    return {
-      updateAvailable: false,
-      currentVersion: "dev",
-      latestVersion: "dev",
-      releaseUrl: "",
-      releaseName: "",
-      releaseNotes: "",
-    };
-  }
-  return invoke<UpdateInfo>("check_for_updates");
 }
 
 export async function launchDummy(request: LaunchRequest): Promise<LaunchResult> {

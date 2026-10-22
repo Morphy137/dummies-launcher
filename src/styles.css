@@ -1781,6 +1781,58 @@ button {
   background: var(--surface);
 }
 
+.update-dialog,
+.fui-DialogSurface.update-dialog {
+  width: 520px;
+  height: auto;
+  max-height: calc(100vh - 48px);
+}
+
+.update-copy {
+  margin: 0 0 12px;
+  color: var(--text-body);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.update-notes {
+  max-height: 180px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-elevated);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.update-progress__track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--surface-hover);
+}
+
+.update-progress__bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-blue);
+  transition: width var(--motion-normal) var(--ease-standard);
+}
+
 .switch {
   position: relative;
   display: inline-flex;

@@ -99,15 +99,6 @@ export interface SteamRemoveResult {
   updatedGame?: Game | null;
 }
 
-export interface UpdateInfo {
-  updateAvailable: boolean;
-  currentVersion: string;
-  latestVersion: string;
-  releaseUrl: string;
-  releaseName: string;
-  releaseNotes: string;
-}
-
 export interface DatabaseGame {
   id: string;
   name: string;
