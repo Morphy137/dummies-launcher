@@ -38,7 +38,7 @@ impl Default for Settings {
         Self {
             theme: "system".to_string(),
             language: "system".to_string(),
-            show_dummy_window: false,
+            show_dummy_window: true,
             minimize_to_tray: true,
             cards_per_row: 6,
             quest_timer_enabled: true,
@@ -526,6 +526,27 @@ fn migrate_legacy_data(paths: &AppPaths) {
             break;
         }
     }
+}
+
+fn migrate_dummy_window_visibility(paths: &AppPaths) {
+    let marker = paths
+        .settings_path
+        .with_file_name(".dummy-window-visible-v1");
+    if marker.exists() {
+        return;
+    }
+
+    if paths.settings_path.is_file() {
+        let mut settings = load_settings(&paths.settings_path);
+        if !settings.show_dummy_window {
+            settings.show_dummy_window = true;
+            if write_settings(&paths.settings_path, &settings).is_err() {
+                return;
+            }
+        }
+    }
+
+    let _ = fs::write(marker, b"1");
 }
 
 fn sanitize_component(value: &str) -> Option<String> {
@@ -1657,6 +1678,7 @@ pub fn run() {
                 gamelist_path: data_dir.join("gamelist.json"),
             };
             migrate_legacy_data(&paths);
+            migrate_dummy_window_visibility(&paths);
             let settings = load_settings(&paths.settings_path);
             let database = load_database(&paths.gamelist_path);
 
@@ -1789,6 +1811,32 @@ mod tests {
         assert!(!loaded.notify_on_complete);
         assert!(loaded.show_dummy_window);
         assert!(!loaded.minimize_to_tray);
+
+        fs::remove_dir_all(directory).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn migrates_hidden_dummy_window_to_visible_once() {
+        let directory = temporary_directory("dummy-window-migration");
+        fs::create_dir_all(&directory).expect("create temp dir");
+        let paths = AppPaths {
+            games_dir: directory.join("games"),
+            settings_path: directory.join("settings.json"),
+            my_games_path: directory.join("myGames.json"),
+            gamelist_path: directory.join("gamelist.json"),
+        };
+        let mut settings = Settings::default();
+        settings.show_dummy_window = false;
+        write_settings(&paths.settings_path, &settings).expect("write settings");
+
+        migrate_dummy_window_visibility(&paths);
+        assert!(load_settings(&paths.settings_path).show_dummy_window);
+
+        let mut settings = load_settings(&paths.settings_path);
+        settings.show_dummy_window = false;
+        write_settings(&paths.settings_path, &settings).expect("write settings");
+        migrate_dummy_window_visibility(&paths);
+        assert!(!load_settings(&paths.settings_path).show_dummy_window);
 
         fs::remove_dir_all(directory).expect("cleanup temp dir");
     }

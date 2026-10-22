@@ -35,7 +35,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   language: "system",
-  showDummyWindow: false,
+  showDummyWindow: true,
   minimizeToTray: true,
   cardsPerRow: 6,
   questTimerEnabled: true,

@@ -105,7 +105,8 @@ export default {
     openRelease: "Abrir release",
     dummyProcess: "Proceso dummy",
     showDummyWindow: "Mostrar ventana del dummy",
-    showDummyWindowDesc: "Abre una pequeña ventana nativa para el proceso dummy.",
+    showDummyWindowDesc:
+      "Mantén una ventana nativa visible para el dummy. Discord podría no detectar el juego si está desactivado.",
     minimizeToTray: "Ocultar dummy al minimizar",
     minimizeToTrayDesc: "Oculta la ventana del dummy en vez de dejarla en la barra de tareas.",
     note: "Los ajustes se guardan localmente y se aplican al instante.",
