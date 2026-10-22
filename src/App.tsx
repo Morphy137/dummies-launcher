@@ -7,6 +7,7 @@ import {
   Settings20Regular,
 } from "@fluentui/react-icons";
 import { isTauri } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import AddGameDialog from "./components/AddGameDialog";
@@ -20,6 +21,7 @@ import Toast from "./components/Toast";
 import i18n from "./i18n";
 import {
   addGame,
+  checkForUpdates,
   createShortcut,
   getBootstrap,
   launchDummy,
@@ -89,7 +91,13 @@ export default function App() {
   const [questTicks, setQuestTicks] = useState<Record<string, QuestTick>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
+  const [toast, setToast] = useState<{
+    id: number;
+    text: string;
+    actionLabel?: string;
+    duration?: number;
+    onAction?: () => void;
+  } | null>(null);
 
   const resolvedTheme = useResolvedTheme(settings.theme);
   const language =
@@ -127,6 +135,38 @@ export default function App() {
       void i18n.changeLanguage(language);
     }
   }, [language]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void checkForUpdates()
+        .then((info) => {
+          if (cancelled || !info.updateAvailable) return;
+
+          setToast({
+            id: Date.now(),
+            text: i18n.t("notices.updateAvailable", { version: info.latestVersion }),
+            actionLabel: info.releaseUrl ? i18n.t("notices.viewRelease") : undefined,
+            duration: 8500,
+            onAction: info.releaseUrl
+              ? () => {
+                  void openUrl(info.releaseUrl).catch(() => {});
+                }
+              : undefined,
+          });
+        })
+        .catch(() => {
+          // Update checks are best-effort and should never block app start.
+        });
+    }, 1200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -525,7 +565,14 @@ export default function App() {
         />
 
         {toast ? (
-          <Toast key={toast.id} message={toast.text} onDismiss={() => setToast(null)} />
+          <Toast
+            key={toast.id}
+            message={toast.text}
+            actionLabel={toast.actionLabel}
+            duration={toast.duration}
+            onAction={toast.onAction}
+            onDismiss={() => setToast(null)}
+          />
         ) : null}
       </div>
     </FluentProvider>

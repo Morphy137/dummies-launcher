@@ -1485,6 +1485,23 @@ button {
   flex: 1;
 }
 
+.toast__action {
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.toast__action:hover {
+  background: var(--surface-hover);
+}
+
 .toast__close {
   display: grid;
   width: 22px;

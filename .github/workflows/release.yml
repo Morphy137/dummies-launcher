@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and publish (for example v1.0.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Validate version
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.tag || github.ref_name }}"
+          if (-not $tag.StartsWith("v")) {
+            throw "Release tag must start with 'v': $tag"
+          }
+          $version = $tag.Substring(1)
+          $tauriVersion = (Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          $packageVersion = (Get-Content "package.json" -Raw | ConvertFrom-Json).version
+          if ($tauriVersion -ne $version -or $packageVersion -ne $version) {
+            throw "Version mismatch: tag=$version tauri=$tauriVersion package=$packageVersion"
+          }
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build NSIS installer
+        run: pnpm tauri build --bundles nsis
+
+      - name: Build portable package
+        run: pnpm package:portable
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          $files = @(
+            Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe"
+            Get-ChildItem "src-tauri/target/release/portable/*.zip"
+          )
+          $checksums = foreach ($file in $files) {
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)"
+          }
+          $checksums | Set-Content "src-tauri/target/release/SHA256SUMS.txt" -Encoding ascii
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $assets = @(
+            Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -ExpandProperty FullName
+            Get-ChildItem "src-tauri/target/release/portable/*.zip" | Select-Object -ExpandProperty FullName
+            "src-tauri/target/release/SHA256SUMS.txt"
+          )
+
+          gh release view $env:RELEASE_TAG --json tagName *> $null
+          $exists = $LASTEXITCODE -eq 0
+
+          if ($exists) {
+            gh release upload $env:RELEASE_TAG @assets --clobber
+          } else {
+            gh release create $env:RELEASE_TAG @assets --title "Dummies $env:RELEASE_TAG" --generate-notes
+          }
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to publish release $env:RELEASE_TAG"
+          }

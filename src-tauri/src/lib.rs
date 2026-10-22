@@ -17,6 +17,7 @@ use winreg::RegKey;
 use winreg::enums::HKEY_CURRENT_USER;
 
 const DISCORD_DETECTABLE_URL: &str = "https://discord.com/api/applications/detectable";
+const UPDATES_REPOSITORY: &str = "Morphy137/dummies-launcher";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -1309,7 +1310,9 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
             .build()
             .map_err(|error| error.to_string())?;
         let response = client
-            .get("https://api.github.com/repos/Morphy137/discord-dummies-launcher/releases/latest")
+            .get(format!(
+                "https://api.github.com/repos/{UPDATES_REPOSITORY}/releases/latest"
+            ))
             .header("Accept", "application/vnd.github+json")
             .send()
             .map_err(|error| error.to_string())?;
