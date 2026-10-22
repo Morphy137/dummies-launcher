@@ -1,0 +1,42 @@
+{
+  "name": "dummies",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:dummy": "cargo build --release --manifest-path crates/dummy-game/Cargo.toml && powershell -ExecutionPolicy Bypass -File scripts/copy-dummy.ps1",
+    "build:app": "pnpm build && pnpm build:dummy",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "test": "vitest run",
+    "check": "biome check . && tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "measure": "powershell -ExecutionPolicy Bypass -File scripts/measure-memory.ps1"
+  },
+  "dependencies": {
+    "@fluentui/react-components": "^9.74.10",
+    "@fluentui/react-icons": "^2.0.344",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@tauri-apps/api": "^2.12.4",
+    "i18next": "^26.5.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-i18next": "^17.1.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@tauri-apps/cli": "2.12.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  }
+}

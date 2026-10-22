@@ -1,0 +1,22 @@
+# Rust
+/target/
+/src-tauri/target/
+/crates/*/target/
+**/*.rs.bk
+
+# Node
+node_modules/
+/dist/
+.vite/
+*.tsbuildinfo
+
+# Tauri
+/src-tauri/gen/
+/src-tauri/resources/dummy-game.exe
+/.tauri/
+
+# Local
+.env
+.env.*
+*.log
+*.pdb
