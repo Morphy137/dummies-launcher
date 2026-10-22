@@ -3,12 +3,16 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
+use tauri_plugin_notification::NotificationExt;
 
 const DISCORD_DETECTABLE_URL: &str = "https://discord.com/api/applications/detectable";
 
@@ -20,6 +24,11 @@ struct Settings {
     show_dummy_window: bool,
     minimize_to_tray: bool,
     cards_per_row: u8,
+    quest_timer_enabled: bool,
+    quest_duration_minutes: u32,
+    quest_sync_buffer_seconds: u32,
+    auto_stop_on_complete: bool,
+    notify_on_complete: bool,
 }
 
 impl Default for Settings {
@@ -30,6 +39,11 @@ impl Default for Settings {
             show_dummy_window: false,
             minimize_to_tray: true,
             cards_per_row: 6,
+            quest_timer_enabled: true,
+            quest_duration_minutes: 15,
+            quest_sync_buffer_seconds: 60,
+            auto_stop_on_complete: true,
+            notify_on_complete: true,
         }
     }
 }
@@ -183,6 +197,17 @@ struct RunningDummy {
     child: Child,
     stdin: ChildStdin,
     name: String,
+    timer_stop: Option<Arc<AtomicBool>>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct QuestTick {
+    key: String,
+    name: String,
+    remaining_seconds: u64,
+    phase: String,
+    percent: u8,
 }
 
 struct AppState {
@@ -209,6 +234,12 @@ fn normalize_settings(mut settings: Settings) -> Settings {
     }
     if !(4..=8).contains(&settings.cards_per_row) {
         settings.cards_per_row = 6;
+    }
+    if !(1..=120).contains(&settings.quest_duration_minutes) {
+        settings.quest_duration_minutes = 15;
+    }
+    if settings.quest_sync_buffer_seconds > 300 {
+        settings.quest_sync_buffer_seconds = 60;
     }
     settings
 }
@@ -607,6 +638,9 @@ fn running_keys(state: &AppState) -> Result<Vec<String>, String> {
 }
 
 fn stop_running_dummy(mut dummy: RunningDummy) {
+    if let Some(timer_stop) = dummy.timer_stop.take() {
+        timer_stop.store(true, Ordering::SeqCst);
+    }
     let _ = dummy.stdin.write_all(b"QUIT\n");
     let _ = dummy.stdin.flush();
     thread::sleep(Duration::from_millis(80));
@@ -623,6 +657,282 @@ fn stop_all_internal(state: &AppState) {
             stop_running_dummy(dummy);
         }
     }
+}
+
+fn start_quest_timer(
+    app: AppHandle,
+    key: String,
+    name: String,
+    target_minutes: u32,
+    buffer_seconds: u32,
+    auto_stop: bool,
+    notify: bool,
+) -> Arc<AtomicBool> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_signal = stop.clone();
+
+    thread::spawn(move || {
+        let start = Instant::now();
+        let target = u64::from(target_minutes) * 60;
+        let total = target + u64::from(buffer_seconds);
+
+        loop {
+            if stop_signal.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let elapsed = start.elapsed().as_secs();
+            let remaining = total.saturating_sub(elapsed);
+            let phase = if elapsed >= total {
+                "complete"
+            } else if elapsed >= target {
+                "syncing"
+            } else {
+                "playing"
+            };
+            let percent = (elapsed.min(total) * 100).checked_div(total).unwrap_or(100) as u8;
+
+            let _ = app.emit(
+                "quest://tick",
+                QuestTick {
+                    key: key.clone(),
+                    name: name.clone(),
+                    remaining_seconds: remaining,
+                    phase: phase.to_string(),
+                    percent,
+                },
+            );
+
+            if phase == "complete" {
+                if notify {
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title("Quest complete")
+                        .body(format!("{name} reached the quest goal."))
+                        .show();
+                }
+
+                if auto_stop {
+                    let state = app.state::<AppState>();
+                    let dummy = state
+                        .running
+                        .lock()
+                        .ok()
+                        .and_then(|mut running| running.remove(&key));
+                    if let Some(dummy) = dummy {
+                        stop_running_dummy(dummy);
+                        let _ = app.emit(
+                            "dummy://exited",
+                            ExitedPayload {
+                                key: key.clone(),
+                                name: name.clone(),
+                                code: None,
+                            },
+                        );
+                        update_tray_menu(&app, state.inner());
+                    }
+                }
+                break;
+            }
+
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    stop
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn send_dummy_command(state: &AppState, key: &str, command: &str) {
+    if let Ok(mut running) = state.running.lock()
+        && let Some(dummy) = running.get_mut(key)
+    {
+        let _ = dummy.stdin.write_all(command.as_bytes());
+        let _ = dummy.stdin.flush();
+    }
+}
+
+fn update_tray_menu(app: &AppHandle, state: &AppState) {
+    let Some(tray) = app.tray_by_id("main") else {
+        return;
+    };
+
+    let entries: Vec<(String, String)> = {
+        let Ok(running) = state.running.lock() else {
+            return;
+        };
+        running
+            .iter()
+            .map(|(key, dummy)| (key.clone(), dummy.name.clone()))
+            .collect()
+    };
+
+    let build = || -> tauri::Result<()> {
+        let menu = Menu::new(app)?;
+        let open = MenuItem::with_id(app, "open", "Open Dummies", true, None::<&str>)?;
+        menu.append(&open)?;
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+
+        if entries.is_empty() {
+            let empty = MenuItem::with_id(app, "empty", "No games running", false, None::<&str>)?;
+            menu.append(&empty)?;
+        } else {
+            for (key, name) in &entries {
+                let submenu = Submenu::with_id(app, format!("game:{key}"), name, true)?;
+                let show = MenuItem::with_id(
+                    app,
+                    format!("show:{key}"),
+                    "Show window",
+                    true,
+                    None::<&str>,
+                )?;
+                let hide = MenuItem::with_id(
+                    app,
+                    format!("hide:{key}"),
+                    "Hide window",
+                    true,
+                    None::<&str>,
+                )?;
+                let stop =
+                    MenuItem::with_id(app, format!("stop:{key}"), "Stop game", true, None::<&str>)?;
+                submenu.append(&show)?;
+                submenu.append(&hide)?;
+                submenu.append(&PredefinedMenuItem::separator(app)?)?;
+                submenu.append(&stop)?;
+                menu.append(&submenu)?;
+            }
+        }
+
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+        let stop_all = MenuItem::with_id(
+            app,
+            "stop_all",
+            "Stop all games",
+            !entries.is_empty(),
+            None::<&str>,
+        )?;
+        menu.append(&stop_all)?;
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+        let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+        menu.append(&quit)?;
+
+        tray.set_menu(Some(menu))?;
+        let tooltip = if entries.is_empty() {
+            "Dummies".to_string()
+        } else {
+            format!("Dummies — {} running", entries.len())
+        };
+        tray.set_tooltip(Some(tooltip))?;
+        Ok(())
+    };
+
+    let _ = build();
+}
+
+fn handle_tray_menu(app: &AppHandle, id: &str) {
+    if id == "open" {
+        show_main_window(app);
+        return;
+    }
+
+    if id == "quit" {
+        let state = app.state::<AppState>();
+        stop_all_internal(state.inner());
+        app.exit(0);
+        return;
+    }
+
+    if id == "stop_all" {
+        let state = app.state::<AppState>();
+        let keys: Vec<String> = {
+            let Ok(mut running) = state.running.lock() else {
+                return;
+            };
+            let keys = running.keys().cloned().collect();
+            for (_, dummy) in running.drain() {
+                stop_running_dummy(dummy);
+            }
+            keys
+        };
+        for key in keys {
+            let _ = app.emit(
+                "dummy://exited",
+                ExitedPayload {
+                    key,
+                    name: String::new(),
+                    code: None,
+                },
+            );
+        }
+        update_tray_menu(app, state.inner());
+        return;
+    }
+
+    if let Some(key) = id.strip_prefix("show:") {
+        let state = app.state::<AppState>();
+        send_dummy_command(state.inner(), key, "SHOW\n");
+        return;
+    }
+
+    if let Some(key) = id.strip_prefix("hide:") {
+        let state = app.state::<AppState>();
+        send_dummy_command(state.inner(), key, "HIDE\n");
+        return;
+    }
+
+    if let Some(key) = id.strip_prefix("stop:") {
+        let state = app.state::<AppState>();
+        let dummy = state
+            .running
+            .lock()
+            .ok()
+            .and_then(|mut running| running.remove(key));
+        if let Some(dummy) = dummy {
+            stop_running_dummy(dummy);
+            let _ = app.emit(
+                "dummy://exited",
+                ExitedPayload {
+                    key: key.to_string(),
+                    name: String::new(),
+                    code: None,
+                },
+            );
+            update_tray_menu(app, state.inner());
+        }
+    }
+}
+
+fn create_tray(app: &AppHandle) -> tauri::Result<()> {
+    let mut builder = TrayIconBuilder::with_id("main")
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| handle_tray_menu(app, event.id().as_ref()))
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+
+    builder.build(app)?;
+    let state = app.state::<AppState>();
+    update_tray_menu(app, state.inner());
+    Ok(())
 }
 
 fn spawn_monitor(app: AppHandle, running: Arc<Mutex<HashMap<String, RunningDummy>>>) {
@@ -667,6 +977,8 @@ fn spawn_monitor(app: AppHandle, running: Arc<Mutex<HashMap<String, RunningDummy
             for payload in exited {
                 let _ = app.emit("dummy://exited", payload);
             }
+            let state = app.state::<AppState>();
+            update_tray_menu(&app, state.inner());
         }
     });
 }
@@ -937,13 +1249,34 @@ fn launch_dummy(
         .take()
         .ok_or_else(|| "Could not open dummy stdin".to_string())?;
 
-    let dummy = RunningDummy { child, stdin, name };
+    let timer_stop = if settings.quest_timer_enabled {
+        Some(start_quest_timer(
+            app.clone(),
+            game_key.clone(),
+            name.clone(),
+            settings.quest_duration_minutes,
+            settings.quest_sync_buffer_seconds,
+            settings.auto_stop_on_complete,
+            settings.notify_on_complete,
+        ))
+    } else {
+        None
+    };
+
+    let dummy = RunningDummy {
+        child,
+        stdin,
+        name,
+        timer_stop,
+    };
 
     state
         .running
         .lock()
         .map_err(|error| error.to_string())?
         .insert(game_key.clone(), dummy);
+
+    update_tray_menu(&app, state.inner());
 
     Ok(LaunchResult {
         game_key,
@@ -953,7 +1286,7 @@ fn launch_dummy(
 }
 
 #[tauri::command]
-fn stop_dummy(state: State<AppState>, game_key: String) -> Result<bool, String> {
+fn stop_dummy(app: AppHandle, state: State<AppState>, game_key: String) -> Result<bool, String> {
     let dummy = state
         .running
         .lock()
@@ -962,6 +1295,7 @@ fn stop_dummy(state: State<AppState>, game_key: String) -> Result<bool, String> 
 
     if let Some(dummy) = dummy {
         stop_running_dummy(dummy);
+        update_tray_menu(&app, state.inner());
         Ok(true)
     } else {
         Ok(false)
@@ -969,12 +1303,14 @@ fn stop_dummy(state: State<AppState>, game_key: String) -> Result<bool, String> 
 }
 
 #[tauri::command]
-fn stop_all_dummies(state: State<AppState>) -> Result<usize, String> {
+fn stop_all_dummies(app: AppHandle, state: State<AppState>) -> Result<usize, String> {
     let mut running = state.running.lock().map_err(|error| error.to_string())?;
     let count = running.len();
     for (_, dummy) in running.drain() {
         stop_running_dummy(dummy);
     }
+    drop(running);
+    update_tray_menu(&app, state.inner());
     Ok(count)
 }
 
@@ -994,6 +1330,7 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            app.handle().plugin(tauri_plugin_notification::init())?;
 
             let data_dir = app.path().app_data_dir()?;
             fs::create_dir_all(&data_dir)?;
@@ -1017,6 +1354,7 @@ pub fn run() {
             };
             let running = state.running.clone();
             app.manage(state);
+            create_tray(app.handle())?;
             spawn_monitor(app.handle().clone(), running);
 
             Ok(())
@@ -1086,11 +1424,18 @@ mod tests {
             show_dummy_window: true,
             minimize_to_tray: false,
             cards_per_row: 99,
+            quest_timer_enabled: true,
+            quest_duration_minutes: 0,
+            quest_sync_buffer_seconds: 999,
+            auto_stop_on_complete: true,
+            notify_on_complete: true,
         });
 
         assert_eq!(settings.theme, "system");
         assert_eq!(settings.language, "system");
         assert_eq!(settings.cards_per_row, 6);
+        assert_eq!(settings.quest_duration_minutes, 15);
+        assert_eq!(settings.quest_sync_buffer_seconds, 60);
         assert!(settings.show_dummy_window);
         assert!(!settings.minimize_to_tray);
     }
@@ -1106,6 +1451,11 @@ mod tests {
             show_dummy_window: true,
             minimize_to_tray: false,
             cards_per_row: 7,
+            quest_timer_enabled: true,
+            quest_duration_minutes: 20,
+            quest_sync_buffer_seconds: 30,
+            auto_stop_on_complete: false,
+            notify_on_complete: false,
         };
 
         write_settings(&path, &settings).expect("write settings");
@@ -1114,6 +1464,10 @@ mod tests {
         assert_eq!(loaded.theme, "dark");
         assert_eq!(loaded.language, "es");
         assert_eq!(loaded.cards_per_row, 7);
+        assert_eq!(loaded.quest_duration_minutes, 20);
+        assert_eq!(loaded.quest_sync_buffer_seconds, 30);
+        assert!(!loaded.auto_stop_on_complete);
+        assert!(!loaded.notify_on_complete);
         assert!(loaded.show_dummy_window);
         assert!(!loaded.minimize_to_tray);
 
