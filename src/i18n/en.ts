@@ -118,6 +118,8 @@ export default {
     shortcutCreated: "Shortcut created: {{path}}",
     steamSaved: "Steam integration updated.",
     steamRemoved: "Steam integration removed.",
+    updateAvailable: "Dummies {{version}} is available.",
+    viewRelease: "View release",
     catalogSoon: "The catalog is the next backend step.",
   },
   steam: {

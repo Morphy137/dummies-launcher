@@ -118,6 +118,8 @@ export default {
     shortcutCreated: "Acceso directo creado: {{path}}",
     steamSaved: "Integración con Steam actualizada.",
     steamRemoved: "Integración con Steam eliminada.",
+    updateAvailable: "Dummies {{version}} está disponible.",
+    viewRelease: "Ver release",
     catalogSoon: "El catálogo es el siguiente paso del backend.",
   },
   steam: {
