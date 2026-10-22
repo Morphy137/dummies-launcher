@@ -3,6 +3,7 @@ import {
   Heart20Regular,
   Image20Regular,
   MoreHorizontal20Regular,
+  Pause20Filled,
   Play20Filled,
   Stop20Filled,
 } from "@fluentui/react-icons";
@@ -11,13 +12,16 @@ import { useTranslation } from "react-i18next";
 import { getFallbackArt, getGameCoverCandidates, getGameInitials } from "../lib/covers";
 import { useCoverCandidates } from "../lib/useCoverCandidates";
 import type { Game } from "../types";
+import RetroClock from "./RetroClock";
 
 interface PosterCardProps {
   game: Game;
   busy: boolean;
+  canPause: boolean;
   onOpen: (game: Game) => void;
   onToggleFavorite: (game: Game) => void;
   onToggleRunning: (game: Game) => void;
+  onTogglePause: (game: Game) => void;
 }
 
 type ArtStyle = CSSProperties & {
@@ -28,9 +32,11 @@ type ArtStyle = CSSProperties & {
 export default function PosterCard({
   game,
   busy,
+  canPause,
   onOpen,
   onToggleFavorite,
   onToggleRunning,
+  onTogglePause,
 }: PosterCardProps) {
   const { t } = useTranslation();
   const candidates = getGameCoverCandidates(game);
@@ -41,19 +47,15 @@ export default function PosterCard({
   } = useCoverCandidates(candidates);
   const fallback = getFallbackArt(game.name);
   const initials = getGameInitials(game.name);
-  const phaseLabel =
-    game.phase === "syncing"
-      ? t("game.syncing")
-      : game.phase === "complete"
-        ? t("game.complete")
-        : t("game.running");
   const artStyle: ArtStyle = {
     "--art-a": fallback[0],
     "--art-b": fallback[1],
   };
 
   return (
-    <article className={`poster-card${game.running ? " is-running" : ""}`}>
+    <article
+      className={`poster-card${game.running ? " is-running" : ""}${game.paused ? " is-paused" : ""}`}
+    >
       <div className="poster-card__art" style={artStyle}>
         {cachedCover && !imageFailed ? (
           <img
@@ -79,12 +81,8 @@ export default function PosterCard({
           onClick={() => onOpen(game)}
         />
 
-        {game.running ? (
-          <span className="running-badge">
-            <span className="status-dot" />
-            <span>{phaseLabel}</span>
-            {game.remaining ? <span className="running-badge__timer">{game.remaining}</span> : null}
-          </span>
+        {game.running && game.remaining ? (
+          <RetroClock time={game.remaining} paused={game.paused} />
         ) : null}
 
         <button
@@ -101,20 +99,54 @@ export default function PosterCard({
         </button>
 
         <div className="poster-card__overlay">
-          <button
-            type="button"
-            className="play-button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleRunning(game);
-            }}
-            disabled={busy}
-            aria-busy={busy}
-            aria-label={game.running ? t("game.stop") : t("game.play")}
-            title={game.running ? t("game.stop") : t("game.play")}
-          >
-            {game.running ? <Stop20Filled /> : <Play20Filled />}
-          </button>
+          {game.running ? (
+            <div className="poster-card__controls">
+              {canPause ? (
+                <button
+                  type="button"
+                  className="play-button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onTogglePause(game);
+                  }}
+                  disabled={busy}
+                  aria-label={game.paused ? t("game.resume") : t("game.pause")}
+                  title={game.paused ? t("game.resume") : t("game.pause")}
+                >
+                  {game.paused ? <Play20Filled /> : <Pause20Filled />}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="play-button play-button--danger"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleRunning(game);
+                }}
+                disabled={busy}
+                aria-busy={busy}
+                aria-label={t("game.stop")}
+                title={t("game.stop")}
+              >
+                <Stop20Filled />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="play-button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleRunning(game);
+              }}
+              disabled={busy}
+              aria-busy={busy}
+              aria-label={t("game.play")}
+              title={t("game.play")}
+            >
+              <Play20Filled />
+            </button>
+          )}
         </div>
       </div>
 

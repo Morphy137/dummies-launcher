@@ -6,37 +6,48 @@ import {
   Heart20Regular,
   Image20Regular,
   Open20Regular,
+  Pause20Filled,
   Play20Filled,
   Settings20Regular,
   Stop20Filled,
 } from "@fluentui/react-icons";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { getFallbackArt, getGameCoverCandidates, getGameInitials } from "../lib/covers";
+import {
+  getFallbackArt,
+  getGameBannerCandidates,
+  getGameCoverCandidates,
+  getGameInitials,
+} from "../lib/covers";
 import { useCoverCandidates } from "../lib/useCoverCandidates";
 import type { Game } from "../types";
+import RetroClock from "./RetroClock";
 
 interface GameDetailProps {
   game: Game;
   busy: boolean;
+  canPause: boolean;
   onBack: () => void;
   onConfigureSteam: (game: Game) => void;
   onCreateShortcut: (game: Game) => Promise<void>;
   onDelete: (game: Game) => Promise<void>;
   onToggleFavorite: (game: Game) => void;
   onToggleRunning: (game: Game) => void;
+  onTogglePause: (game: Game) => void;
   onUpdateExe: (game: Game, exe: string) => Promise<void>;
 }
 
 export default function GameDetail({
   game,
   busy,
+  canPause,
   onBack,
   onConfigureSteam,
   onCreateShortcut,
   onDelete,
   onToggleFavorite,
   onToggleRunning,
+  onTogglePause,
   onUpdateExe,
 }: GameDetailProps) {
   const { t } = useTranslation();
@@ -52,6 +63,12 @@ export default function GameDetail({
     failed: coverFailed,
     handleError: handleCoverError,
   } = useCoverCandidates(candidates);
+  const bannerCandidates = getGameBannerCandidates(game);
+  const {
+    src: banner,
+    failed: bannerFailed,
+    handleError: handleBannerError,
+  } = useCoverCandidates(bannerCandidates);
   const fallback = getFallbackArt(game.name);
   const initials = getGameInitials(game.name);
   const steamStatus = game.useSteamPath
@@ -115,12 +132,9 @@ export default function GameDetail({
           } as CSSProperties
         }
       >
-        <div
-          className="detail__backdrop"
-          style={{
-            backgroundImage: cachedCover && !coverFailed ? `url(${cachedCover})` : undefined,
-          }}
-        />
+        {banner && !bannerFailed ? (
+          <img className="detail__banner" src={banner} alt="" onError={handleBannerError} />
+        ) : null}
         <div className="detail__scrim" />
         <div className="detail__hero-content">
           <div className="detail__poster">
@@ -135,10 +149,11 @@ export default function GameDetail({
           </div>
 
           <div className="detail__info">
-            <div className="detail__eyebrow">
-              <span className={`status-dot${game.running ? " is-active" : ""}`} />
-              {game.running ? t("game.running") : t("detail.ready")}
-            </div>
+            {game.running ? (
+              <div className="detail__timer">
+                <RetroClock time={game.remaining} paused={game.paused} large />
+              </div>
+            ) : null}
             <h1>{game.name}</h1>
             <div className="detail__meta">
               <span>{game.exe}</span>
@@ -154,6 +169,17 @@ export default function GameDetail({
                 {game.running ? <Stop20Filled /> : <Play20Filled />}
                 {game.running ? t("game.stop") : t("game.play")}
               </button>
+              {game.running && canPause ? (
+                <button
+                  type="button"
+                  className="secondary-button detail__pause"
+                  onClick={() => onTogglePause(game)}
+                  disabled={busy}
+                >
+                  {game.paused ? <Play20Filled /> : <Pause20Filled />}
+                  {game.paused ? t("game.resume") : t("game.pause")}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`detail__favorite${game.isFavorite ? " is-favorite" : ""}`}

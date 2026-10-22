@@ -27,8 +27,10 @@ import {
   launchDummy,
   onDummyExited,
   onQuestTick,
+  pauseDummy,
   removeGame,
   removeSteamIntegration,
+  resumeDummy,
   saveSettings,
   setupSteamIntegration,
   stopDummy,
@@ -208,6 +210,7 @@ export default function App() {
           running: runningKeys.has(key),
           remaining: tick ? formatRemaining(tick.remainingSeconds) : undefined,
           phase: tick?.phase,
+          paused: tick?.paused ?? false,
         };
       })
       .filter((game) => {
@@ -234,6 +237,7 @@ export default function App() {
       running: runningKeys.has(selectedKey),
       remaining: tick ? formatRemaining(tick.remainingSeconds) : undefined,
       phase: tick?.phase,
+      paused: tick?.paused ?? false,
     };
   }, [library, questTicks, runningKeys, selectedKey]);
 
@@ -343,6 +347,30 @@ export default function App() {
       showToast(`${prefix} ${message}`);
     } finally {
       setBusyKey(null);
+    }
+  };
+
+  const handleTogglePause = async (game: Game) => {
+    const gameKey = makeGameKey(game);
+    if (!runningKeys.has(gameKey) || !settings.questTimerEnabled) return;
+
+    try {
+      if (game.paused) {
+        await resumeDummy(gameKey);
+      } else {
+        await pauseDummy(gameKey);
+      }
+
+      setQuestTicks((current) => {
+        const tick = current[gameKey];
+        if (!tick) return current;
+        return {
+          ...current,
+          [gameKey]: { ...tick, paused: !game.paused },
+        };
+      });
+    } catch (error: unknown) {
+      showToast(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -547,10 +575,12 @@ export default function App() {
               <PosterGrid
                 games={games}
                 cardsPerRow={settings.cardsPerRow}
+                canPause={settings.questTimerEnabled}
                 onAddGame={() => setAddGameOpen(true)}
                 onOpenGame={openGame}
                 onToggleFavorite={handleToggleFavorite}
                 onToggleRunning={handleToggleRunning}
+                onTogglePause={handleTogglePause}
                 busyKey={busyKey}
               />
             ) : (
@@ -564,12 +594,14 @@ export default function App() {
                 key={selectedKey}
                 game={selectedGame}
                 busy={busyKey === makeGameKey(selectedGame)}
+                canPause={settings.questTimerEnabled}
                 onBack={closeGame}
                 onConfigureSteam={(game) => setSteamGameKey(makeGameKey(game))}
                 onCreateShortcut={handleCreateShortcut}
                 onDelete={handleDeleteGame}
                 onToggleFavorite={handleToggleFavorite}
                 onToggleRunning={handleToggleRunning}
+                onTogglePause={handleTogglePause}
                 onUpdateExe={handleUpdateExe}
               />
             </div>

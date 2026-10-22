@@ -37,9 +37,9 @@ const MIN_WIDTH: usize = 180;
 const MIN_HEIGHT: usize = 210;
 const MAX_WIDTH: usize = 640;
 const MAX_HEIGHT: usize = 720;
-const TITLE_HEIGHT: usize = 30;
-const BUTTON_SIZE: usize = 22;
-const BUTTON_MARGIN: usize = 4;
+const TITLE_HEIGHT: usize = 34;
+const BUTTON_SIZE: usize = 24;
+const BUTTON_MARGIN: usize = 5;
 const DETECTION_SIZE: usize = 64;
 const ART_MASTER_SIZE: usize = 512;
 const WM_APP_SHOW: u32 = WM_APP + 1;
@@ -181,16 +181,6 @@ fn decode_frame(bytes: &[u8]) -> RgbaImage {
     image
 }
 
-fn premultiply(pixel: [u8; 4]) -> [u8; 4] {
-    let alpha = u32::from(pixel[3]);
-    [
-        ((u32::from(pixel[0]) * alpha + 127) / 255) as u8,
-        ((u32::from(pixel[1]) * alpha + 127) / 255) as u8,
-        ((u32::from(pixel[2]) * alpha + 127) / 255) as u8,
-        pixel[3],
-    ]
-}
-
 fn blend_pixel(buffer: &mut [u8], width: usize, height: usize, x: usize, y: usize, pixel: [u8; 4]) {
     if pixel[3] == 0 || x >= width || y >= height {
         return;
@@ -271,12 +261,19 @@ fn compose_frame(master: &RgbaImage, width: usize, height: usize) -> Vec<u8> {
     );
     let mut frame = vec![0u8; width * height * 4];
 
+    draw_panel(&mut frame, width, height);
+
     for y in 0..art_size {
         for x in 0..art_size {
             let pixel = art.get_pixel(x as u32, y as u32);
-            let pixel = premultiply([pixel[0], pixel[1], pixel[2], pixel[3]]);
-            let target = ((y + art_y) * width + x + art_x) * 4;
-            frame[target..target + 4].copy_from_slice(&pixel);
+            blend_pixel(
+                &mut frame,
+                width,
+                height,
+                x + art_x,
+                y + art_y,
+                [pixel[0], pixel[1], pixel[2], pixel[3]],
+            );
         }
     }
 
@@ -284,18 +281,90 @@ fn compose_frame(master: &RgbaImage, width: usize, height: usize) -> Vec<u8> {
     frame
 }
 
-fn draw_chrome(frame: &mut [u8], width: usize, height: usize) {
-    for y in 0..TITLE_HEIGHT {
+fn draw_panel(frame: &mut [u8], width: usize, height: usize) {
+    let radius = 18;
+    for y in 0..height {
+        let t = if height > 1 {
+            y as f32 / (height - 1) as f32
+        } else {
+            0.0
+        };
+        let base_r = (20.0 * (1.0 - t) + 8.0 * t) as u8;
+        let base_g = (23.0 * (1.0 - t) + 9.0 * t) as u8;
+        let base_b = (30.0 * (1.0 - t) + 12.0 * t) as u8;
+
         for x in 0..width {
-            if inside_rounded_top(x, y, width, TITLE_HEIGHT, 10) {
-                blend_pixel(frame, width, height, x, y, [7, 8, 10, 150]);
+            if !inside_rounded_rect(x, y, width, height, radius) {
+                continue;
+            }
+
+            let noise = ((x * 17 + y * 31) % 7) as i16 - 3;
+            let edge = if x < 2 || y < 2 || x + 2 >= width || y + 2 >= height {
+                8
+            } else {
+                0
+            };
+            blend_pixel(
+                frame,
+                width,
+                height,
+                x,
+                y,
+                [
+                    (i16::from(base_r) + noise + edge).clamp(0, 255) as u8,
+                    (i16::from(base_g) + noise + edge).clamp(0, 255) as u8,
+                    (i16::from(base_b) + noise + edge).clamp(0, 255) as u8,
+                    198,
+                ],
+            );
+        }
+    }
+
+    for y in 0..height {
+        for x in 0..width {
+            if !inside_rounded_rect(x, y, width, height, radius) {
+                continue;
+            }
+            let border = x == 0
+                || y == 0
+                || x + 1 == width
+                || y + 1 == height
+                || !inside_rounded_rect(x.saturating_sub(1), y, width, height, radius)
+                || !inside_rounded_rect(x + 1, y, width, height, radius)
+                || !inside_rounded_rect(x, y.saturating_sub(1), width, height, radius)
+                || !inside_rounded_rect(x, y + 1, width, height, radius);
+            if border {
+                blend_pixel(frame, width, height, x, y, [255, 255, 255, 20]);
             }
         }
     }
 
+    for x in 12..width.saturating_sub(12) {
+        blend_pixel(frame, width, height, x, height - 2, [255, 255, 255, 12]);
+    }
+}
+
+fn draw_chrome(frame: &mut [u8], width: usize, height: usize) {
+    for y in 0..TITLE_HEIGHT {
+        let t = y as f32 / TITLE_HEIGHT.max(1) as f32;
+        let top = [
+            (38.0 * (1.0 - t) + 16.0 * t) as u8,
+            (40.0 * (1.0 - t) + 18.0 * t) as u8,
+            (48.0 * (1.0 - t) + 24.0 * t) as u8,
+        ];
+        for x in 0..width {
+            if inside_rounded_top(x, y, width, TITLE_HEIGHT, 16) {
+                blend_pixel(frame, width, height, x, y, [top[0], top[1], top[2], 238]);
+            }
+        }
+    }
+
+    for x in 12..width.saturating_sub(12) {
+        blend_pixel(frame, width, height, x, 0, [255, 255, 255, 34]);
+    }
     for y in TITLE_HEIGHT.saturating_sub(2)..TITLE_HEIGHT {
-        for x in 10..width.saturating_sub(10) {
-            blend_pixel(frame, width, height, x, y, [255, 255, 255, 18]);
+        for x in 14..width.saturating_sub(14) {
+            blend_pixel(frame, width, height, x, y, [255, 255, 255, 22]);
         }
     }
 
@@ -306,14 +375,14 @@ fn draw_chrome(frame: &mut [u8], width: usize, height: usize) {
     for x in [minimize_x, close_x] {
         for y in 0..BUTTON_SIZE {
             for offset in 0..BUTTON_SIZE {
-                if inside_rounded_rect(offset, y, BUTTON_SIZE, BUTTON_SIZE, 6) {
+                if inside_rounded_rect(offset, y, BUTTON_SIZE, BUTTON_SIZE, 7) {
                     blend_pixel(
                         frame,
                         width,
                         height,
                         x + offset,
                         button_y + y,
-                        [255, 255, 255, 22],
+                        [255, 255, 255, 25],
                     );
                 }
             }
@@ -322,29 +391,66 @@ fn draw_chrome(frame: &mut [u8], width: usize, height: usize) {
 
     let icon_center_y = button_y + BUTTON_SIZE / 2;
     for y in icon_center_y - 1..icon_center_y + 1 {
-        for x in minimize_x + 6..minimize_x + 16 {
-            blend_pixel(frame, width, height, x, y, [244, 244, 246, 225]);
+        for x in minimize_x + 7..minimize_x + 17 {
+            blend_pixel(frame, width, height, x, y, [246, 246, 248, 230]);
         }
     }
 
-    for offset in 0..10 {
+    for offset in 0..11 {
         for thickness in 0..2 {
             blend_pixel(
                 frame,
                 width,
                 height,
-                close_x + 5 + offset,
-                button_y + 5 + offset + thickness,
-                [244, 244, 246, 225],
+                close_x + 6 + offset,
+                button_y + 6 + offset + thickness,
+                [246, 246, 248, 230],
             );
             blend_pixel(
                 frame,
                 width,
                 height,
-                close_x + 16 - offset,
-                button_y + 5 + offset + thickness,
-                [244, 244, 246, 225],
+                close_x + 17 - offset,
+                button_y + 6 + offset + thickness,
+                [246, 246, 248, 230],
             );
+        }
+    }
+
+    let brand_x = 12;
+    let brand_y = (TITLE_HEIGHT - 12) / 2;
+    for y in 0..12 {
+        for x in 0..12 {
+            if inside_rounded_rect(x, y, 12, 12, 4) {
+                blend_pixel(
+                    frame,
+                    width,
+                    height,
+                    brand_x + x,
+                    brand_y + y,
+                    [198, 31, 91, 245],
+                );
+            }
+        }
+    }
+    for y in 4..7 {
+        for x in 4..8 {
+            blend_pixel(
+                frame,
+                width,
+                height,
+                brand_x + x,
+                brand_y + y,
+                [255, 255, 255, 210],
+            );
+        }
+    }
+
+    for dot in [width / 2 - 7, width / 2, width / 2 + 7] {
+        for y in 16..18 {
+            for x in dot..dot + 2 {
+                blend_pixel(frame, width, height, x, y, [255, 255, 255, 62]);
+            }
         }
     }
 
@@ -994,9 +1100,14 @@ mod tests {
 
     #[test]
     fn centers_square_art_in_resized_window() {
+        let default_art_size = DEFAULT_WIDTH.min(DEFAULT_HEIGHT - TITLE_HEIGHT);
         assert_eq!(
             art_layout(DEFAULT_WIDTH, DEFAULT_HEIGHT),
-            (DEFAULT_WIDTH, 0, TITLE_HEIGHT)
+            (
+                default_art_size,
+                (DEFAULT_WIDTH - default_art_size) / 2,
+                TITLE_HEIGHT
+            )
         );
 
         let (art_size, art_x, art_y) = art_layout(400, 500);

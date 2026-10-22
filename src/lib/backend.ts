@@ -132,6 +132,16 @@ export async function stopDummy(gameKey: string): Promise<boolean> {
   return invoke<boolean>("stop_dummy", { gameKey });
 }
 
+export async function pauseDummy(gameKey: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("pause_dummy", { gameKey });
+}
+
+export async function resumeDummy(gameKey: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("resume_dummy", { gameKey });
+}
+
 export async function stopAllDummies(): Promise<number> {
   if (!isTauri()) return 0;
   return invoke<number>("stop_all_dummies");

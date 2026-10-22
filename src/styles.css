@@ -671,6 +671,90 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.retro-clock {
+  display: inline-flex;
+  min-width: 62px;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 193, 92, 0.38);
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(35, 28, 16, 0.96), rgba(10, 9, 6, 0.96)),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.035) 0,
+      rgba(255, 255, 255, 0.035) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 14px rgba(255, 174, 63, 0.1);
+  color: #ffd27a;
+  font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-shadow: 0 0 7px rgba(255, 181, 71, 0.55);
+  z-index: 3;
+}
+
+.retro-clock__digits {
+  display: inline-block;
+}
+
+.retro-clock--large {
+  min-width: 108px;
+  padding: 9px 14px;
+  border-radius: 6px;
+  font-size: 27px;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 12px rgba(255, 181, 71, 0.6);
+}
+
+.retro-clock.is-paused {
+  border-color: rgba(255, 193, 92, 0.55);
+  color: #ffb84d;
+  animation: retro-pulse 1.25s steps(2, end) infinite;
+}
+
+@keyframes retro-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.poster-card__art > .retro-clock {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.poster-card.is-paused .poster-card__art {
+  border-color: rgba(255, 193, 92, 0.5);
+}
+
+.poster-card__controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.play-button--danger {
+  border-color: rgba(255, 97, 97, 0.45);
+  background: var(--accent-red);
+  color: #ffffff;
+}
+
+.play-button--danger:hover {
+  background: #ff7a7a;
+}
+
 .poster-card__meta {
   display: flex;
   min-width: 0;
@@ -1158,26 +1242,27 @@ button {
   isolation: isolate;
 }
 
-.detail__backdrop {
+.detail__banner {
   position: absolute;
-  inset: -28px;
-  background-position: center;
-  background-size: cover;
-  filter: blur(30px) saturate(1.1);
-  opacity: 0.65;
-  transform: scale(1.08);
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
   z-index: 0;
 }
 
 .detail__scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    90deg,
-    rgba(7, 8, 10, 0.92) 0%,
-    rgba(7, 8, 10, 0.66) 48%,
-    rgba(7, 8, 10, 0.9) 100%
-  );
+  background:
+    linear-gradient(
+      90deg,
+      rgba(7, 8, 10, 0.94) 0%,
+      rgba(7, 8, 10, 0.72) 42%,
+      rgba(7, 8, 10, 0.28) 100%
+    ),
+    linear-gradient(0deg, rgba(7, 8, 10, 0.78) 0%, rgba(7, 8, 10, 0.08) 58%);
   z-index: 1;
 }
 
@@ -1225,8 +1310,9 @@ button {
   text-transform: uppercase;
 }
 
-.detail__eyebrow .status-dot {
-  background: var(--accent-green);
+.detail__timer {
+  display: flex;
+  margin-bottom: 12px;
 }
 
 .detail__info h1 {
@@ -1255,6 +1341,7 @@ button {
 
 .detail__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-top: 20px;
@@ -1307,7 +1394,8 @@ button {
 }
 
 .detail__panel {
-  max-width: 720px;
+  width: 100%;
+  max-width: none;
   margin-top: 24px;
   padding: 18px 22px;
   border: 1px solid var(--hairline);
@@ -1950,4 +2038,15 @@ button {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+.detail__actions .detail__pause {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.detail__actions .detail__pause:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
 }
