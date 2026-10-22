@@ -1,10 +1,10 @@
 [package]
 name = "dummies"
-version = "1.0.0"
+version = "1.0.1"
 description = "A lightweight game presence launcher"
 authors = ["Morphy137"]
 license = "MIT"
-repository = "https://github.com/Morphy137/discord-dummies-launcher"
+repository = "https://github.com/Morphy137/dummies-launcher"
 edition = "2024"
 rust-version = "1.90"
 

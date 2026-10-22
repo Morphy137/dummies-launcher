@@ -6,9 +6,10 @@ import {
   Play20Filled,
   Stop20Filled,
 } from "@fluentui/react-icons";
-import { type CSSProperties, useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { getFallbackArt, getGameCoverCandidates, getGameInitials } from "../lib/covers";
+import { useCoverCandidates } from "../lib/useCoverCandidates";
 import type { Game } from "../types";
 
 interface PosterCardProps {
@@ -32,11 +33,12 @@ export default function PosterCard({
   onToggleRunning,
 }: PosterCardProps) {
   const { t } = useTranslation();
-  const [candidateIndex, setCandidateIndex] = useState(0);
-  const [imageFailed, setImageFailed] = useState(false);
-
   const candidates = getGameCoverCandidates(game);
-  const cover = candidates[candidateIndex];
+  const {
+    src: cachedCover,
+    failed: imageFailed,
+    handleError: handleImageError,
+  } = useCoverCandidates(candidates);
   const fallback = getFallbackArt(game.name);
   const initials = getGameInitials(game.name);
   const phaseLabel =
@@ -50,27 +52,13 @@ export default function PosterCard({
     "--art-b": fallback[1],
   };
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset the image fallback when cover metadata changes.
-  useEffect(() => {
-    setCandidateIndex(0);
-    setImageFailed(false);
-  }, [game.appId, game.coverImageHash, game.iconHash, game.steamAppId]);
-
-  const handleImageError = () => {
-    if (candidateIndex + 1 < candidates.length) {
-      setCandidateIndex((current) => current + 1);
-    } else {
-      setImageFailed(true);
-    }
-  };
-
   return (
     <article className={`poster-card${game.running ? " is-running" : ""}`}>
       <div className="poster-card__art" style={artStyle}>
-        {cover && !imageFailed ? (
+        {cachedCover && !imageFailed ? (
           <img
             className="poster-card__poster"
-            src={cover}
+            src={cachedCover}
             alt=""
             loading="lazy"
             decoding="async"

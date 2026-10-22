@@ -13,6 +13,7 @@ import {
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getFallbackArt, getGameCoverCandidates, getGameInitials } from "../lib/covers";
+import { useCoverCandidates } from "../lib/useCoverCandidates";
 import type { Game } from "../types";
 
 interface GameDetailProps {
@@ -39,8 +40,6 @@ export default function GameDetail({
   onUpdateExe,
 }: GameDetailProps) {
   const { t } = useTranslation();
-  const [coverIndex, setCoverIndex] = useState(0);
-  const [coverFailed, setCoverFailed] = useState(false);
   const [editingExe, setEditingExe] = useState(false);
   const [exeDraft, setExeDraft] = useState(game.exe);
   const exeInputRef = useRef<HTMLInputElement>(null);
@@ -48,7 +47,11 @@ export default function GameDetail({
   const [deleting, setDeleting] = useState(false);
 
   const candidates = getGameCoverCandidates(game);
-  const cover = candidates[coverIndex];
+  const {
+    src: cachedCover,
+    failed: coverFailed,
+    handleError: handleCoverError,
+  } = useCoverCandidates(candidates);
   const fallback = getFallbackArt(game.name);
   const initials = getGameInitials(game.name);
   const steamStatus = game.useSteamPath
@@ -58,14 +61,6 @@ export default function GameDetail({
       : game.steamAppId
         ? t("detail.steamOptional")
         : t("detail.steamUnavailable");
-
-  const handleCoverError = () => {
-    if (coverIndex + 1 < candidates.length) {
-      setCoverIndex((current) => current + 1);
-    } else {
-      setCoverFailed(true);
-    }
-  };
 
   useEffect(() => {
     if (editingExe) {
@@ -122,13 +117,15 @@ export default function GameDetail({
       >
         <div
           className="detail__backdrop"
-          style={{ backgroundImage: cover && !coverFailed ? `url(${cover})` : undefined }}
+          style={{
+            backgroundImage: cachedCover && !coverFailed ? `url(${cachedCover})` : undefined,
+          }}
         />
         <div className="detail__scrim" />
         <div className="detail__hero-content">
           <div className="detail__poster">
-            {cover && !coverFailed ? (
-              <img src={cover} alt="" onError={handleCoverError} />
+            {cachedCover && !coverFailed ? (
+              <img src={cachedCover} alt="" onError={handleCoverError} />
             ) : (
               <span className="poster-card__placeholder" aria-hidden="true">
                 <Image20Regular />
