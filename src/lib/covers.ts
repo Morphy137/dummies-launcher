@@ -31,6 +31,22 @@ export function getGameCoverCandidates(game: Game): string[] {
   return candidates;
 }
 
+export function getGameBannerCandidates(game: Game): string[] {
+  const candidates: string[] = [];
+  const steamId = String(game.steamAppId || "").trim();
+
+  if (steamId) {
+    candidates.push(
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_hero.jpg`,
+    );
+    candidates.push(
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/header.jpg`,
+    );
+  }
+
+  return [...new Set([...candidates, ...getGameCoverCandidates(game)])];
+}
+
 const fallbackPalettes: Array<[string, string]> = [
   ["#52603b", "#111a0d"],
   ["#6b4a2a", "#17120c"],

@@ -38,7 +38,9 @@ export default {
   },
   game: {
     play: "Iniciar juego",
-    stop: "Detener juego",
+    stop: "Detener",
+    pause: "Pausar",
+    resume: "Reanudar",
     favorite: "Añadir a favoritos",
     unfavorite: "Quitar de favoritos",
     more: "Más acciones",

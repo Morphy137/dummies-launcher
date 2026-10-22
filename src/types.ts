@@ -10,6 +10,7 @@ export interface Game {
   running: boolean;
   remaining?: string;
   phase?: "playing" | "syncing" | "complete";
+  paused?: boolean;
   steamAppId?: string | null;
   iconHash?: string | null;
   coverImageHash?: string | null;
@@ -77,6 +78,7 @@ export interface QuestTick {
   remainingSeconds: number;
   phase: "playing" | "syncing" | "complete";
   percent: number;
+  paused: boolean;
 }
 
 export interface SteamSetupRequest {

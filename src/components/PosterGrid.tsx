@@ -7,20 +7,24 @@ import PosterCard from "./PosterCard";
 interface PosterGridProps {
   games: Game[];
   cardsPerRow: number;
+  canPause: boolean;
   onAddGame: () => void;
   onOpenGame: (game: Game) => void;
   onToggleFavorite: (game: Game) => void;
   onToggleRunning: (game: Game) => void;
+  onTogglePause: (game: Game) => void;
   busyKey: string | null;
 }
 
 export default function PosterGrid({
   games,
   cardsPerRow,
+  canPause,
   onAddGame,
   onOpenGame,
   onToggleFavorite,
   onToggleRunning,
+  onTogglePause,
   busyKey,
 }: PosterGridProps) {
   const { t } = useTranslation();
@@ -48,9 +52,11 @@ export default function PosterGrid({
           key={makeGameKey(game)}
           game={game}
           busy={busyKey === makeGameKey(game)}
+          canPause={canPause}
           onOpen={onOpenGame}
           onToggleFavorite={onToggleFavorite}
           onToggleRunning={onToggleRunning}
+          onTogglePause={onTogglePause}
         />
       ))}
     </section>

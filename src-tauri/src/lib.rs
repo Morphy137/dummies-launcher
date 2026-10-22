@@ -209,6 +209,53 @@ struct RunningDummy {
     stdin: ChildStdin,
     name: String,
     timer_stop: Option<Arc<AtomicBool>>,
+    quest_clock: Option<Arc<Mutex<QuestClock>>>,
+}
+
+struct QuestClock {
+    started: Instant,
+    paused_at: Option<Instant>,
+    paused_total: Duration,
+}
+
+impl QuestClock {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            paused_at: None,
+            paused_total: Duration::ZERO,
+        }
+    }
+
+    fn elapsed(&self) -> Duration {
+        let now = Instant::now();
+        let paused_now = self
+            .paused_at
+            .map(|paused_at| now.saturating_duration_since(paused_at))
+            .unwrap_or_default();
+        now.saturating_duration_since(self.started)
+            .saturating_sub(self.paused_total + paused_now)
+    }
+
+    fn is_paused(&self) -> bool {
+        self.paused_at.is_some()
+    }
+
+    fn pause(&mut self) -> bool {
+        if self.paused_at.is_some() {
+            return false;
+        }
+        self.paused_at = Some(Instant::now());
+        true
+    }
+
+    fn resume(&mut self) -> bool {
+        let Some(paused_at) = self.paused_at.take() else {
+            return false;
+        };
+        self.paused_total += paused_at.elapsed();
+        true
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -219,6 +266,7 @@ struct QuestTick {
     remaining_seconds: u64,
     phase: String,
     percent: u8,
+    paused: bool,
 }
 
 struct AppState {
@@ -699,12 +747,13 @@ fn start_quest_timer(
     buffer_seconds: u32,
     auto_stop: bool,
     notify: bool,
-) -> Arc<AtomicBool> {
+) -> (Arc<AtomicBool>, Arc<Mutex<QuestClock>>) {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_signal = stop.clone();
+    let clock = Arc::new(Mutex::new(QuestClock::new()));
+    let clock_signal = clock.clone();
 
     thread::spawn(move || {
-        let start = Instant::now();
         let target = u64::from(target_minutes) * 60;
         let total = target + u64::from(buffer_seconds);
 
@@ -713,7 +762,13 @@ fn start_quest_timer(
                 break;
             }
 
-            let elapsed = start.elapsed().as_secs();
+            let (elapsed, paused) = {
+                let clock = clock_signal
+                    .lock()
+                    .expect("quest clock should not be poisoned");
+                (clock.elapsed(), clock.is_paused())
+            };
+            let elapsed = elapsed.as_secs();
             let remaining = total.saturating_sub(elapsed);
             let phase = if elapsed >= total {
                 "complete"
@@ -732,6 +787,7 @@ fn start_quest_timer(
                     remaining_seconds: remaining,
                     phase: phase.to_string(),
                     percent,
+                    paused,
                 },
             );
 
@@ -772,7 +828,7 @@ fn start_quest_timer(
         }
     });
 
-    stop
+    (stop, clock)
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -1499,8 +1555,8 @@ fn launch_dummy(
         .take()
         .ok_or_else(|| "Could not open dummy stdin".to_string())?;
 
-    let timer_stop = if settings.quest_timer_enabled {
-        Some(start_quest_timer(
+    let (timer_stop, quest_clock) = if settings.quest_timer_enabled {
+        let (stop, clock) = start_quest_timer(
             app.clone(),
             game_key.clone(),
             name.clone(),
@@ -1508,9 +1564,10 @@ fn launch_dummy(
             settings.quest_sync_buffer_seconds,
             settings.auto_stop_on_complete,
             settings.notify_on_complete,
-        ))
+        );
+        (Some(stop), Some(clock))
     } else {
-        None
+        (None, None)
     };
 
     let dummy = RunningDummy {
@@ -1518,6 +1575,7 @@ fn launch_dummy(
         stdin,
         name,
         timer_stop,
+        quest_clock,
     };
 
     state
@@ -1550,6 +1608,32 @@ fn stop_dummy(app: AppHandle, state: State<AppState>, game_key: String) -> Resul
     } else {
         Ok(false)
     }
+}
+
+fn set_dummy_paused(state: &AppState, game_key: &str, paused: bool) -> Result<bool, String> {
+    let running = state.running.lock().map_err(|error| error.to_string())?;
+    let dummy = running
+        .get(game_key)
+        .ok_or_else(|| "The dummy is not running.".to_string())?;
+    let Some(clock) = dummy.quest_clock.as_ref() else {
+        return Ok(false);
+    };
+    let mut clock = clock.lock().map_err(|error| error.to_string())?;
+    Ok(if paused {
+        clock.pause()
+    } else {
+        clock.resume()
+    })
+}
+
+#[tauri::command]
+fn pause_dummy(state: State<AppState>, game_key: String) -> Result<bool, String> {
+    set_dummy_paused(state.inner(), &game_key, true)
+}
+
+#[tauri::command]
+fn resume_dummy(state: State<AppState>, game_key: String) -> Result<bool, String> {
+    set_dummy_paused(state.inner(), &game_key, false)
 }
 
 #[tauri::command]
@@ -1632,6 +1716,8 @@ pub fn run() {
             remove_steam_integration,
             launch_dummy,
             stop_dummy,
+            pause_dummy,
+            resume_dummy,
             stop_all_dummies,
             list_running_dummies
         ])
@@ -1743,8 +1829,10 @@ mod tests {
             my_games_path: directory.join("myGames.json"),
             gamelist_path: directory.join("gamelist.json"),
         };
-        let mut settings = Settings::default();
-        settings.show_dummy_window = false;
+        let settings = Settings {
+            show_dummy_window: false,
+            ..Default::default()
+        };
         write_settings(&paths.settings_path, &settings).expect("write settings");
 
         migrate_dummy_window_visibility(&paths);

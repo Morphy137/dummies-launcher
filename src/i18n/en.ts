@@ -38,7 +38,9 @@ export default {
   },
   game: {
     play: "Launch game",
-    stop: "Stop game",
+    stop: "Stop",
+    pause: "Pause",
+    resume: "Resume",
     favorite: "Add to favorites",
     unfavorite: "Remove from favorites",
     more: "More actions",
