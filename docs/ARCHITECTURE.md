@@ -42,7 +42,9 @@ implementations stay in `legacy/` (or on a branch) until feature parity is verif
 - Discord catalog sync/search/add, persistent library, legacy migration, game detail,
   favorite, executable override, delete, shortcuts, Steam manifests, tray controls,
   quest timers, notifications and manual GitHub update check are implemented.
-- Signed auto-updater, portable packaging and code signing are pending.
+- NSIS installer is 3.79 MiB; portable ZIP is 5.02 MiB; release app executable is
+  14.22 MiB.
+- Signed auto-updater and code signing are pending; portable packaging is implemented.
 
 ## Goals
 

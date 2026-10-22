@@ -32,8 +32,9 @@ at 1180×760:
 | Total private working set (Task Manager-style) | ~113 MB |
 | Total private commit | ~181 MB |
 | Electron baseline reported by the user | ~160 MB |
-| NSIS installer | 2.20 MiB |
-| Release app executable | 8.88 MiB |
+| NSIS installer | 3.79 MiB |
+| Portable ZIP | 5.02 MiB |
+| Release app executable | 14.22 MiB |
 
 The Rust shell itself is tiny; WebView2 is the remaining cost. The dummy process
 rewrite is the larger resource win, because the current C# dummy carries a .NET
@@ -141,10 +142,18 @@ pnpm measure
 This sums the Rust app process and its WebView2 children using Task Manager-style
 private working set.
 
-### Test the installer
+### Test the installer or portable package
 
 ```powershell
 .\src-tauri\target\release\bundle\nsis\Dummies_1.0.0_x64-setup.exe
+```
+
+Or build and use the portable ZIP:
+
+```powershell
+pnpm tauri:build -- --no-bundle
+pnpm package:portable
+.\src-tauri\target\release\portable\Dummies-Portable-1.0.0.zip
 ```
 
 The installer is unsigned, so Windows SmartScreen may ask for confirmation. It
