@@ -32,7 +32,7 @@ implementations stay in `legacy/` (or on a branch) until feature parity is verif
 - Raycast-inspired library surface implemented with React/Fluent UI primitives.
 - System light/dark detection and English/Spanish locale setup implemented.
 - Rust/Win32 dummy implemented in `crates/dummy-game`.
-- `dummy-game.exe` is 134.5 KB; hidden private working set ~0.7 MB, visible ~1.4 MB.
+- `dummy-game.exe` is 570 KiB; the transparent layered window uses ~3.0 MB private working set.
 - Release shell measured ~147 MB private working set (Task Manager-style) with a real
   28-entry library and remote covers; the Rust app process itself is ~14.3 MB.
 - Settings persistence, system locale detection, dummy launch/stop, running-state
@@ -123,7 +123,7 @@ release-engineering decision, not a code dependency.
                            │ spawn + stdin
 ┌──────────────────────────▼──────────────────────────────────┐
 │ dummy-game.exe (Rust/Win32)                                 │
-│  hidden by default, no .NET, no WebView, no sidecars        │
+│  transparent layered window, embedded Mood frames, no WebView/sidecars        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -264,8 +264,11 @@ This is the main resource optimization.
 
 - The process name must be the renamed executable file name; Discord detects it.
 - No .NET runtime, no WebView2, no Node, no sidecar DLLs.
-- Hidden by default; the launcher tray is the control surface.
-- Optional visible window for users who want to see the dummy.
+- Visible by default with a transparent 320x356 layered window.
+- Random pre-rendered Mood art on every launch, with a blink animation.
+- Minimal custom frame with minimize and close only (no maximize).
+- A normal 64x64 detection window sits under the face so Discord still sees a
+  conventional titled top-level window.
 - stdin commands: `SHOW`, `HIDE`, `QUIT`, `STOP`.
 - Low disk usage and low per-process memory.
 
@@ -285,13 +288,18 @@ This is the main resource optimization.
   ```
 - Link the CRT statically (`+crt-static`) so the dummy has no VC runtime DLL
   dependency.
-- Start with a message-only window (`HWND_MESSAGE`) and a blocking `GetMessageW` loop.
-  This keeps idle CPU at zero and avoids creating a visible window until requested.
+- The visual window is a `WS_EX_LAYERED` top-level window drawn with
+  `UpdateLayeredWindow` from a 32-bit premultiplied BGRA DIB.
+- Each Mood has open-eye and closed-eye PNG frames embedded in the binary. A 50 ms
+  timer toggles the eye frame to reproduce the SVG blink animation.
+- The custom top strip is drawn into the same bitmap; it contains minimize and close
+  hit areas and no maximize control.
+- A normal 64x64 detection window is placed directly under an opaque part of the face.
+  It carries the game title and keeps Discord's window scan working despite the
+  layered visual surface.
 - A reader thread reads stdin line by line and posts `WM_APP_SHOW`, `WM_APP_HIDE`, or
-  `WM_APP_QUIT` to the message window.
-- `SHOW` creates a small normal window (480×200) with the game name and a short
-  "dummy process" label. `HIDE` destroys it again. `QUIT` posts `WM_CLOSE`.
-- The visible window uses only user32/gdi32; no GDI+, no WinForms, no image decoding.
+  `WM_APP_QUIT` to the visual window.
+- `SHOW` restores and focuses the layered window; `HIDE` hides it; `QUIT` exits.
 - If stdin reaches EOF, the dummy exits. The launcher keeps the process alive while
   the app is running and stops it explicitly on quit.
 - The launcher creates a Windows Job Object with
@@ -302,11 +310,11 @@ This is the main resource optimization.
 
 | Metric | Target | Measured |
 |---|---|---:|
-| Dummy executable size | < 1 MB | 134.5 KB |
-| Hidden dummy private working set | < 5 MB | ~0.7 MB |
-| Visible dummy private working set | < 10 MB | ~1.4 MB |
+| Dummy executable size | < 1 MB | 570 KiB |
+| Hidden dummy private working set | < 5 MB | ~3.0 MB |
+| Visible dummy private working set | < 10 MB | ~3.0 MB |
 | Idle CPU | ~0% | ~0% |
-| Disk per game | ~1 MB | ~135 KB |
+| Disk per game | ~1 MB | ~570 KiB |
 | Startup | < 50 ms | ~instant |
 
 The old self-contained C# WinForms dummy can use tens of MB per process and copies a

@@ -48,11 +48,11 @@ The Rust/Win32 dummy is intentionally tiny:
 
 | Metric | Value |
 |---|---:|
-| `dummy-game.exe` size | 134.5 KB |
-| Hidden private working set | 0.7 MB |
-| Hidden private commit | 1.1 MB |
-| Visible private working set | 1.4 MB |
-| Visible total working set | 14.6 MB |
+| `dummy-game.exe` size | 570 KiB |
+| Hidden private working set | 3.0 MB |
+| Hidden private commit | 3.8 MB |
+| Visible private working set | 3.0 MB |
+| Visible total working set | 14.9 MB |
 
 Build and test it with:
 
@@ -67,7 +67,7 @@ per game and could use tens of megabytes for each dummy.
 - Product name: **Dummies**
 - App identifier: `com.morphy137.dummies`
 - Stack: Tauri 2 + Rust + React/TypeScript + Fluent UI v9
-- Dummy process: Rust/Win32, hidden by default, no .NET
+- Dummy process: Rust/Win32, transparent animated Mood window, no .NET/WebView2
 - Design: Raycast-inspired, dark-first, light adaptation, optional Mica/Acrylic
 - Languages: English and Spanish, system default, English fallback
 - License: MIT (see `LICENSE` and `THIRD_PARTY_NOTICES.md`)

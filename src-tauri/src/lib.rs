@@ -1580,6 +1580,8 @@ fn launch_dummy(
 
     if settings.show_dummy_window {
         command.arg("--window");
+    } else {
+        command.arg("--hidden");
     }
     if !settings.minimize_to_tray {
         command.arg("--no-tray");
