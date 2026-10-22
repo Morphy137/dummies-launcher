@@ -7,26 +7,23 @@ modified by the migration until feature parity is verified.
 
 ## Status
 
-Scaffold created and building. The Tauri shell, Raycast-inspired library surface,
-system light/dark detection, English/Spanish locale setup, the base Tauri window, and
-the first Rust/Win32 dummy process are in place.
+The Rust/Tauri rewrite now covers the core launcher flow: real Discord catalog, a
+persistent library, legacy data migration, launch/stop, tray, quest timers,
+notifications, shortcuts, Steam manifests, and a manual GitHub update check.
 
 Verified locally:
 
-- `pnpm build`
-- `pnpm test`
-- `pnpm lint`
-- `cargo check --manifest-path src-tauri/Cargo.toml`
-- `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings`
-- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`
+- `pnpm check` / `pnpm build` / `pnpm test`
+- `cargo fmt --check` / `cargo clippy -- -D warnings` / `cargo test`
+- `pnpm tauri build --no-bundle` and NSIS packaging
+- End-to-end launch, auto-stop, favorite, edit executable, delete and shortcut flows
 
-Pending: Tauri backend commands, library/database wiring, Steam integration, updater,
-and data migration.
+Pending: signed auto-updater, portable packaging, code signing, and broader QA.
 
 ### Release shell baseline
 
-Measured on 2026-10-21 with the release build, 12 mock posters, window visible at
-1180×760:
+Measured on 2026-10-21 with the release build, a real 28-entry library, window visible
+at 1180×760:
 
 | Metric | Value |
 |---|---:|
@@ -94,28 +91,31 @@ To run the already-built release executable:
 
 What works today:
 
-- Search, `All / Favorites / Active` filters, grid/list toggle.
-- Favorite toggle on poster cards.
-- Minimize, maximize/restore, close.
+- Real Discord detectable catalog, search, paging and `Add game`.
+- Persistent `myGames.json` library, with automatic migration from the old Electron
+  userData on first run.
+- Search, `All / Favorites / Active` filters, grid/list toggle and live covers.
+- Favorite toggle, executable override, delete, and desktop shortcut creation.
+- Game detail view with cover backdrop, metadata, launch/stop and Steam status.
+- Steam manifest setup/removal from the detail view.
+- Launch/stop a dummy from a poster or detail view; the Rust dummy is copied into the
+  app data `games/` folder and managed by the Tauri backend.
+- Tray menu with running games, show/hide, stop, stop all, open and quit.
+- Quest countdown, sync buffer, auto-stop and desktop notification.
 - System light/dark theme, manual theme override and English/Spanish UI.
 - Settings dialog persisted to `%APPDATA%\com.morphy137.dummies\settings.json`.
   Theme and language preview immediately, Cancel reverts, clicking outside saves, and
   a short overlay toast confirms the save without shifting the layout.
 - Cards-per-row setting (4–8) applied live to the poster wall.
-- Launch/stop a dummy from a poster's play button; the Rust dummy is copied into the
-  app data `games/` folder and managed by the Tauri backend.
-- Dummy options: show the optional native window and hide it when minimized.
+- Manual GitHub release check with version display.
 - Fluent System Icons for app chrome, window controls, cards and toasts.
 - Responsive poster wall at the minimum window size.
 
-What is still mock or pending:
+Pending:
 
-- The library is `src/data/mockGames.ts`; it does not read `myGames.json` yet.
-- `Add game` and the Discord catalog are not wired yet.
-- Game detail, tray, Steam integration, quest timers, notifications and updater are
-  still pending.
-- The old Electron app remains the functional reference until catalog and library
-  persistence are migrated.
+- Signed Tauri auto-updater and code signing.
+- Portable packaging.
+- Broader QA across Windows 10/11, DPI, high contrast and offline states.
 
 ### Test the dummy process
 
@@ -148,7 +148,7 @@ private working set.
 ```
 
 The installer is unsigned, so Windows SmartScreen may ask for confirmation. It
-installs the current mock shell, not the final launcher backend.
+installs the current Rust/Tauri launcher.
 
 ### Test light/dark and language
 

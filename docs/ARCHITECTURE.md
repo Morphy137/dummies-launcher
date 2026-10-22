@@ -33,15 +33,16 @@ implementations stay in `legacy/` (or on a branch) until feature parity is verif
 - System light/dark detection and English/Spanish locale setup implemented.
 - Rust/Win32 dummy implemented in `crates/dummy-game`.
 - `dummy-game.exe` is 134.5 KB; hidden private working set ~0.7 MB, visible ~1.4 MB.
-- Release shell measured ~113 MB private working set (Task Manager-style) with 12 mock
-  posters; the Rust app process itself is ~3.6 MB.
-- NSIS installer built at 2.20 MiB; release app executable is 8.88 MiB.
+- Release shell measured ~113 MB private working set (Task Manager-style) with a real
+  28-entry library; the Rust app process itself is ~3.6 MB.
 - Settings persistence, system locale detection, dummy launch/stop, running-state
   events and the settings dialog are implemented.
 - Settings preview live; Cancel reverts, backdrop/Escape saves, saved feedback uses a
-  fixed overlay toast, and cards-per-row (4–8) is configurable.
-- Catalog search, library persistence, Steam integration, quest timers, tray and
-  updater are pending.
+  fixed overlay toast, and cards-per-row (4-8) is configurable.
+- Discord catalog sync/search/add, persistent library, legacy migration, game detail,
+  favorite, executable override, delete, shortcuts, Steam manifests, tray controls,
+  quest timers, notifications and manual GitHub update check are implemented.
+- Signed auto-updater, portable packaging and code signing are pending.
 
 ## Goals
 
@@ -221,9 +222,9 @@ not break loading.
 
 Use the Tauri app data directory based on `com.morphy137.dummies`:
 
-- `%APPDATA%\com.morphy137.dummies\myGames.json` (pending)
+- `%APPDATA%\com.morphy137.dummies\myGames.json` (implemented)
 - `%APPDATA%\com.morphy137.dummies\settings.json` (implemented)
-- `%APPDATA%\com.morphy137.dummies\gamelist.json` (pending)
+- `%APPDATA%\com.morphy137.dummies\gamelist.json` (implemented)
 - `%APPDATA%\com.morphy137.dummies\games\<appId>\<exe path>` (implemented)
 - `%LOCALAPPDATA%\com.morphy137.dummies\logs\`
 - `%LOCALAPPDATA%\com.morphy137.dummies\cache\` (optional cover cache)
