@@ -13,6 +13,8 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 use tauri_plugin_notification::NotificationExt;
+use winreg::RegKey;
+use winreg::enums::HKEY_CURRENT_USER;
 
 const DISCORD_DETECTABLE_URL: &str = "https://discord.com/api/applications/detectable";
 
@@ -125,6 +127,26 @@ struct SyncResult {
     updated: bool,
     count: usize,
     path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInfo {
+    update_available: bool,
+    current_version: String,
+    latest_version: String,
+    release_url: String,
+    release_name: String,
+    release_notes: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SteamSetupResult {
+    manifest_path: String,
+    dest_exe_path: String,
+    steam_path: String,
+    updated_game: LibraryGame,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1184,6 +1206,280 @@ fn update_game_executable(
     Ok(updated)
 }
 
+fn find_steam_path() -> Option<PathBuf> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(key) = hkcu.open_subkey("Software\\Valve\\Steam")
+        && let Ok(value) = key.get_value::<String, _>("SteamPath")
+    {
+        let path = PathBuf::from(value.replace('/', "\\"));
+        if path.is_dir() {
+            return Some(path);
+        }
+    }
+
+    [
+        PathBuf::from(r"C:\Program Files (x86)\Steam"),
+        PathBuf::from(r"C:\Program Files\Steam"),
+    ]
+    .into_iter()
+    .find(|path| path.is_dir())
+}
+
+#[tauri::command]
+fn get_steam_path() -> Option<String> {
+    find_steam_path().map(|path| path.to_string_lossy().to_string())
+}
+
+fn parse_version(value: &str) -> Option<Vec<u32>> {
+    let trimmed = value.trim().trim_start_matches(['v', 'V']);
+    let core = trimmed.split(['-', '+']).next()?;
+    core.split('.')
+        .map(|part| part.parse::<u32>().ok())
+        .collect()
+}
+
+fn version_is_newer(latest: &str, current: &str) -> bool {
+    let Some(latest) = parse_version(latest) else {
+        return false;
+    };
+    let Some(current) = parse_version(current) else {
+        return false;
+    };
+
+    for index in 0..3 {
+        let next = *latest.get(index).unwrap_or(&0);
+        let installed = *current.get(index).unwrap_or(&0);
+        if next != installed {
+            return next > installed;
+        }
+    }
+
+    false
+}
+
+#[tauri::command]
+async fn check_for_updates() -> Result<UpdateInfo, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("Dummies/1.0")
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|error| error.to_string())?;
+        let response = client
+            .get("https://api.github.com/repos/Morphy137/discord-dummies-launcher/releases/latest")
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .map_err(|error| error.to_string())?;
+
+        if !response.status().is_success() {
+            return Err(format!("GitHub returned {}", response.status()));
+        }
+
+        let json: serde_json::Value = response.json().map_err(|error| error.to_string())?;
+        let latest_version = json
+            .get("tag_name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .trim_start_matches(['v', 'V'])
+            .to_string();
+        let current_version = env!("CARGO_PKG_VERSION").to_string();
+
+        Ok(UpdateInfo {
+            update_available: version_is_newer(&latest_version, &current_version),
+            current_version,
+            latest_version,
+            release_url: json
+                .get("html_url")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            release_name: json
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            release_notes: json
+                .get("body")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn setup_steam_integration(
+    app: AppHandle,
+    state: State<AppState>,
+    app_id: String,
+    steam_app_id: String,
+    install_dir: String,
+    exe: String,
+) -> Result<SteamSetupResult, String> {
+    let steam_id = steam_app_id.trim().to_string();
+    if steam_id.is_empty() || !steam_id.chars().all(|character| character.is_ascii_digit()) {
+        return Err("A numeric Steam App ID is required".to_string());
+    }
+
+    let install =
+        sanitize_component(&install_dir).ok_or_else(|| "Invalid install folder".to_string())?;
+    let exe_relative =
+        sanitize_relative_exe(&exe).ok_or_else(|| "Invalid executable path".to_string())?;
+    let exe_name = exe_relative
+        .file_name()
+        .ok_or_else(|| "Invalid executable name".to_string())?;
+    let exe_parent = exe_relative.parent().unwrap_or_else(|| Path::new(""));
+    let steam_path = find_steam_path()
+        .ok_or_else(|| "Steam installation path could not be found".to_string())?;
+    let source = find_dummy_source(&app).ok_or_else(|| {
+        "Could not find dummy-game.exe. Run `pnpm build:dummy` first.".to_string()
+    })?;
+
+    let steam_apps = steam_path.join("steamapps");
+    fs::create_dir_all(&steam_apps).map_err(|error| error.to_string())?;
+    let manifest_path = steam_apps.join(format!("appmanifest_{steam_id}.acf"));
+    let target_dir = steam_apps.join("common").join(&install).join(exe_parent);
+    fs::create_dir_all(&target_dir).map_err(|error| error.to_string())?;
+    let destination = target_dir.join(exe_name);
+
+    let mut library = load_library(&state.paths.my_games_path);
+    let game = library
+        .iter_mut()
+        .find(|game| game.app_id == app_id)
+        .ok_or_else(|| "Game not found in library".to_string())?;
+    let game_name = game.name.clone();
+
+    let manifest = format!(
+        "\"AppState\"\n{{\n    \"appid\" \"{steam_id}\"\n    \"name\" \"{game_name}\"\n    \"installdir\" \"{install}\"\n}}\n"
+    );
+    fs::write(&manifest_path, manifest).map_err(|error| error.to_string())?;
+    fs::copy(&source, &destination).map_err(|error| error.to_string())?;
+
+    game.use_steam_path = true;
+    game.steam_app_id = Some(steam_id);
+    game.install_dir = Some(install);
+    game.exe = exe_relative.to_string_lossy().to_string();
+    game.steam_exe_path = Some(destination.to_string_lossy().to_string());
+    let updated_game = game.clone();
+    write_library(&state.paths.my_games_path, &library)?;
+
+    Ok(SteamSetupResult {
+        manifest_path: manifest_path.to_string_lossy().to_string(),
+        dest_exe_path: destination.to_string_lossy().to_string(),
+        steam_path: steam_path.to_string_lossy().to_string(),
+        updated_game,
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SteamRemoveResult {
+    removed_manifest: bool,
+    removed_folder: bool,
+    updated_game: Option<LibraryGame>,
+}
+
+#[tauri::command]
+fn remove_steam_integration(
+    state: State<AppState>,
+    app_id: String,
+    steam_app_id: Option<String>,
+    install_dir: Option<String>,
+) -> Result<SteamRemoveResult, String> {
+    let steam_path = find_steam_path()
+        .ok_or_else(|| "Steam installation path could not be found".to_string())?;
+    let steam_apps = steam_path.join("steamapps");
+    let mut library = load_library(&state.paths.my_games_path);
+    let game = library.iter_mut().find(|game| game.app_id == app_id);
+    let effective_app_id = steam_app_id
+        .or_else(|| game.as_ref().and_then(|game| game.steam_app_id.clone()))
+        .unwrap_or_default();
+    let effective_install_dir = install_dir
+        .or_else(|| game.as_ref().and_then(|game| game.install_dir.clone()))
+        .unwrap_or_default();
+
+    let mut removed_manifest = false;
+    let mut removed_folder = false;
+
+    if !effective_app_id.is_empty() {
+        let manifest = steam_apps.join(format!("appmanifest_{effective_app_id}.acf"));
+        if manifest.is_file() {
+            fs::remove_file(&manifest).map_err(|error| error.to_string())?;
+            removed_manifest = true;
+        }
+    }
+
+    if !effective_install_dir.is_empty() {
+        let folder = steam_apps.join("common").join(&effective_install_dir);
+        if folder.is_dir() {
+            fs::remove_dir_all(&folder).map_err(|error| error.to_string())?;
+            removed_folder = true;
+        }
+    }
+
+    let updated_game = if let Some(game) = game {
+        game.use_steam_path = false;
+        game.steam_exe_path = None;
+        let updated = game.clone();
+        write_library(&state.paths.my_games_path, &library)?;
+        Some(updated)
+    } else {
+        None
+    };
+
+    Ok(SteamRemoveResult {
+        removed_manifest,
+        removed_folder,
+        updated_game,
+    })
+}
+
+#[tauri::command]
+fn create_shortcut(
+    app: AppHandle,
+    state: State<AppState>,
+    app_id: String,
+    exe: String,
+) -> Result<String, String> {
+    let library = load_library(&state.paths.my_games_path);
+    let game = library
+        .iter()
+        .find(|game| game.app_id == app_id && game.exe == exe)
+        .ok_or_else(|| "Game not found in library".to_string())?;
+    let source = find_dummy_source(&app).ok_or_else(|| {
+        "Could not find dummy-game.exe. Run `pnpm build:dummy` first.".to_string()
+    })?;
+    let (destination, working_dir) = prepare_dummy(&source, &state.paths, &game.app_id, &game.exe)?;
+    let desktop = app
+        .path()
+        .desktop_dir()
+        .map_err(|error| error.to_string())?;
+    let base_name = sanitize_component(&game.name).unwrap_or_else(|| "Game".to_string());
+    let mut shortcut_path = desktop.join(format!("{base_name}.lnk"));
+
+    if shortcut_path.exists() {
+        for index in 2..1000 {
+            let candidate = desktop.join(format!("{base_name} ({index}).lnk"));
+            if !candidate.exists() {
+                shortcut_path = candidate;
+                break;
+            }
+        }
+    }
+
+    let mut link = mslnk::ShellLink::new(&destination).map_err(|error| error.to_string())?;
+    link.set_name(Some(game.name.clone()));
+    link.set_arguments(Some(format!("\"{}\"", game.name)));
+    link.set_working_dir(Some(working_dir.to_string_lossy().to_string()));
+    link.create_lnk(&shortcut_path)
+        .map_err(|error| error.to_string())?;
+
+    Ok(shortcut_path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn launch_dummy(
     app: AppHandle,
@@ -1331,6 +1627,7 @@ pub fn run() {
                 )?;
             }
             app.handle().plugin(tauri_plugin_notification::init())?;
+            app.handle().plugin(tauri_plugin_opener::init())?;
 
             let data_dir = app.path().app_data_dir()?;
             fs::create_dir_all(&data_dir)?;
@@ -1371,6 +1668,11 @@ pub fn run() {
             remove_game,
             toggle_favorite,
             update_game_executable,
+            create_shortcut,
+            get_steam_path,
+            setup_steam_integration,
+            remove_steam_integration,
+            check_for_updates,
             launch_dummy,
             stop_dummy,
             stop_all_dummies,
