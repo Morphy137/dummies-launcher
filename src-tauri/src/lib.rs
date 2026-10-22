@@ -1139,11 +1139,28 @@ fn add_game(state: State<AppState>, request: AddGameRequest) -> Result<LibraryGa
 #[tauri::command]
 fn remove_game(state: State<AppState>, app_id: String, exe: String) -> Result<bool, String> {
     let mut library = load_library(&state.paths.my_games_path);
+    let candidate = library
+        .iter()
+        .find(|game| game.app_id == app_id && game.exe == exe)
+        .cloned();
     let before = library.len();
     library.retain(|game| !(game.app_id == app_id && game.exe == exe));
     let removed = library.len() != before;
 
     if removed {
+        if let Some(game) = candidate
+            && game.use_steam_path
+            && let Some(steam_path) = find_steam_path()
+        {
+            let steam_apps = steam_path.join("steamapps");
+            if let Some(steam_app_id) = game.steam_app_id.as_deref() {
+                let _ = fs::remove_file(steam_apps.join(format!("appmanifest_{steam_app_id}.acf")));
+            }
+            if let Some(install_dir) = game.install_dir.as_deref() {
+                let _ = fs::remove_dir_all(steam_apps.join("common").join(install_dir));
+            }
+        }
+
         write_library(&state.paths.my_games_path, &library)?;
     }
 
