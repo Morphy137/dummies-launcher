@@ -6,6 +6,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $releaseDirectory = Join-Path $root "src-tauri\target\release"
 $executable = Join-Path $releaseDirectory "dummies.exe"
 $dummy = Join-Path $root "src-tauri\resources\dummy-game.exe"
+$package = Get-Content (Join-Path $root "package.json") -Raw | ConvertFrom-Json
+$version = $package.version
 
 if (-not (Test-Path $executable)) {
   throw "Release executable not found. Run: pnpm tauri build --no-bundle"
@@ -31,7 +33,7 @@ if (Test-Path $readme) {
   Copy-Item -Force $readme (Join-Path $staging "README.md")
 }
 
-$archive = Join-Path $OutputDirectory "Dummies-Portable-1.0.0.zip"
+$archive = Join-Path $OutputDirectory "Dummies-Portable-$version.zip"
 if (Test-Path $archive) {
   Remove-Item -Force $archive
 }
