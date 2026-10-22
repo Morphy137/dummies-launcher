@@ -37,8 +37,9 @@ jobs:
           $version = $tag.Substring(1)
           $tauriVersion = (Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
           $packageVersion = (Get-Content "package.json" -Raw | ConvertFrom-Json).version
-          if ($tauriVersion -ne $version -or $packageVersion -ne $version) {
-            throw "Version mismatch: tag=$version tauri=$tauriVersion package=$packageVersion"
+          $cargoVersion = (Select-String -Path "src-tauri/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          if ($tauriVersion -ne $version -or $packageVersion -ne $version -or $cargoVersion -ne $version) {
+            throw "Version mismatch: tag=$version tauri=$tauriVersion package=$packageVersion cargo=$cargoVersion"
           }
 
       - name: Setup pnpm
