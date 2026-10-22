@@ -159,7 +159,7 @@ export default function GameDetail({
               </button>
               <button
                 type="button"
-                className={`secondary-button detail__favorite${game.isFavorite ? " is-favorite" : ""}`}
+                className={`detail__favorite${game.isFavorite ? " is-favorite" : ""}`}
                 onClick={() => onToggleFavorite(game)}
                 aria-label={game.isFavorite ? t("game.unfavorite") : t("game.favorite")}
                 title={game.isFavorite ? t("game.unfavorite") : t("game.favorite")}

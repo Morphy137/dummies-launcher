@@ -205,6 +205,14 @@ export default function App() {
     setToast({ id: Date.now(), text });
   };
 
+  const openGame = (game: Game) => {
+    setSelectedKey(makeGameKey(game));
+  };
+
+  const closeGame = () => {
+    setSelectedKey(null);
+  };
+
   const handleAddGame = async (game: DatabaseGame) => {
     const added = await addGame(game);
     setLibrary((current) => {
@@ -331,7 +339,7 @@ export default function App() {
     try {
       await removeGame(game.appId, game.exe);
       setLibrary((current) => current.filter((entry) => makeGameKey(entry) !== makeGameKey(game)));
-      setSelectedKey(null);
+      closeGame();
     } catch (error: unknown) {
       showToast(error instanceof Error ? error.message : String(error));
       throw error;
@@ -384,23 +392,8 @@ export default function App() {
       <div className="app-shell">
         <TitleBar />
 
-        {selectedGame ? (
-          <main className="library library--detail">
-            <GameDetail
-              key={selectedKey}
-              game={selectedGame}
-              busy={busyKey === makeGameKey(selectedGame)}
-              onBack={() => setSelectedKey(null)}
-              onConfigureSteam={(game) => setSteamGameKey(makeGameKey(game))}
-              onCreateShortcut={handleCreateShortcut}
-              onDelete={handleDeleteGame}
-              onToggleFavorite={handleToggleFavorite}
-              onToggleRunning={handleToggleRunning}
-              onUpdateExe={handleUpdateExe}
-            />
-          </main>
-        ) : (
-          <main className="library">
+        <main className="library">
+          <div className="library-view" inert={selectedGame !== null}>
             <header className="command-bar">
               <label className="search-box">
                 <Search20Regular aria-hidden="true" />
@@ -481,7 +474,7 @@ export default function App() {
                 games={games}
                 cardsPerRow={settings.cardsPerRow}
                 onAddGame={() => setAddGameOpen(true)}
-                onOpenGame={(game) => setSelectedKey(makeGameKey(game))}
+                onOpenGame={openGame}
                 onToggleFavorite={handleToggleFavorite}
                 onToggleRunning={handleToggleRunning}
                 busyKey={busyKey}
@@ -489,8 +482,25 @@ export default function App() {
             ) : (
               <GameList games={games} />
             )}
-          </main>
-        )}
+          </div>
+
+          {selectedGame ? (
+            <div className="detail-view">
+              <GameDetail
+                key={selectedKey}
+                game={selectedGame}
+                busy={busyKey === makeGameKey(selectedGame)}
+                onBack={closeGame}
+                onConfigureSteam={(game) => setSteamGameKey(makeGameKey(game))}
+                onCreateShortcut={handleCreateShortcut}
+                onDelete={handleDeleteGame}
+                onToggleFavorite={handleToggleFavorite}
+                onToggleRunning={handleToggleRunning}
+                onUpdateExe={handleUpdateExe}
+              />
+            </div>
+          ) : null}
+        </main>
 
         <AddGameDialog open={addGameOpen} onOpenChange={setAddGameOpen} onAdd={handleAddGame} />
 
