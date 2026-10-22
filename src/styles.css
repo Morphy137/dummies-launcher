@@ -1553,9 +1553,12 @@ button {
 
 .settings-dialog,
 .fui-DialogSurface.settings-dialog {
+  display: flex;
   width: 560px;
   max-width: calc(100vw - 48px);
-  max-height: 86vh;
+  height: min(760px, calc(100vh - 32px));
+  max-height: calc(100vh - 32px);
+  flex-direction: column;
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--hairline);
@@ -1567,11 +1570,17 @@ button {
 
 .settings-body,
 .fui-DialogBody.settings-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
   padding: 0;
 }
 
 .settings-title,
 .fui-DialogTitle.settings-title {
+  flex: 0 0 auto;
   margin: 0;
   padding: 20px 24px 0;
   color: var(--text-primary);
@@ -1583,6 +1592,8 @@ button {
 
 .settings-content,
 .fui-DialogContent.settings-content {
+  min-height: 0;
+  flex: 1;
   padding: 16px 24px 20px;
   overflow-y: auto;
 }
@@ -1745,6 +1756,7 @@ button {
 .settings-actions,
 .fui-DialogActions.settings-actions {
   display: flex;
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: 8px;
   padding: 14px 24px;
