@@ -3,12 +3,14 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
+
+const DISCORD_DETECTABLE_URL: &str = "https://discord.com/api/applications/detectable";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -38,7 +40,112 @@ struct Bootstrap {
     settings: Settings,
     system_locale: String,
     running_keys: Vec<String>,
+    library: Vec<LibraryGame>,
     version: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct LibraryGame {
+    app_id: String,
+    name: String,
+    exe: String,
+    is_favorite: bool,
+    steam_app_id: Option<String>,
+    icon_hash: Option<String>,
+    cover_image_hash: Option<String>,
+    requires_steam: bool,
+    use_steam_path: bool,
+    install_dir: Option<String>,
+    steam_exe_path: Option<String>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Default for LibraryGame {
+    fn default() -> Self {
+        Self {
+            app_id: String::new(),
+            name: String::new(),
+            exe: String::new(),
+            is_favorite: false,
+            steam_app_id: None,
+            icon_hash: None,
+            cover_image_hash: None,
+            requires_steam: false,
+            use_steam_path: false,
+            install_dir: None,
+            steam_exe_path: None,
+            extra: serde_json::Map::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DatabaseGame {
+    id: String,
+    name: String,
+    exe: String,
+    is_launcher: bool,
+    uses_new_detection: bool,
+    steam_app_id: Option<String>,
+    icon_hash: Option<String>,
+    cover_image_hash: Option<String>,
+    #[serde(skip)]
+    name_lower: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DatabasePage {
+    items: Vec<DatabaseGame>,
+    offset: usize,
+    limit: usize,
+    has_more: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncResult {
+    updated: bool,
+    count: usize,
+    path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddGameRequest {
+    id: String,
+    name: String,
+    exe: String,
+    uses_new_detection: bool,
+    steam_app_id: Option<String>,
+    icon_hash: Option<String>,
+    cover_image_hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DetectableApp {
+    id: Option<String>,
+    name: Option<String>,
+    executables: Option<Vec<AppExecutable>>,
+    icon_hash: Option<String>,
+    cover_image_hash: Option<String>,
+    third_party_skus: Option<Vec<ThirdPartySku>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AppExecutable {
+    name: Option<String>,
+    os: Option<String>,
+    is_launcher: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ThirdPartySku {
+    distributor: Option<String>,
+    id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +175,8 @@ struct ExitedPayload {
 struct AppPaths {
     games_dir: PathBuf,
     settings_path: PathBuf,
+    my_games_path: PathBuf,
+    gamelist_path: PathBuf,
 }
 
 struct RunningDummy {
@@ -79,6 +188,7 @@ struct RunningDummy {
 struct AppState {
     paths: AppPaths,
     settings: Mutex<Settings>,
+    database: RwLock<Vec<DatabaseGame>>,
     running: Arc<Mutex<HashMap<String, RunningDummy>>>,
 }
 
@@ -108,6 +218,261 @@ fn write_settings(path: &Path, settings: &Settings) -> Result<(), String> {
     let temporary = path.with_extension("json.tmp");
     fs::write(&temporary, json).map_err(|error| error.to_string())?;
     fs::rename(&temporary, path).map_err(|error| error.to_string())
+}
+
+fn fallback_exe_name(name: &str) -> String {
+    let base = sanitize_component(name).unwrap_or_else(|| "Game".to_string());
+    if base.to_ascii_lowercase().ends_with(".exe") {
+        base
+    } else {
+        format!("{base}.exe")
+    }
+}
+
+fn pick_best_executable(app: &DetectableApp) -> Option<&AppExecutable> {
+    let executables = app.executables.as_deref().unwrap_or(&[]);
+    executables
+        .iter()
+        .find(|entry| {
+            entry
+                .os
+                .as_deref()
+                .is_some_and(|os| os.eq_ignore_ascii_case("win32"))
+                && !entry.is_launcher.unwrap_or(false)
+                && entry
+                    .name
+                    .as_deref()
+                    .is_some_and(|name| !name.trim().is_empty())
+        })
+        .or_else(|| {
+            executables.iter().find(|entry| {
+                entry
+                    .os
+                    .as_deref()
+                    .is_some_and(|os| os.eq_ignore_ascii_case("win32"))
+                    && entry
+                        .name
+                        .as_deref()
+                        .is_some_and(|name| !name.trim().is_empty())
+            })
+        })
+}
+
+fn to_database_games(apps: Vec<DetectableApp>) -> Vec<DatabaseGame> {
+    let mut games = Vec::new();
+
+    for app in apps {
+        let Some(name) = app.name.clone().filter(|name| !name.trim().is_empty()) else {
+            continue;
+        };
+        let best = pick_best_executable(&app);
+        let exe = best
+            .and_then(|entry| entry.name.clone())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| fallback_exe_name(&name));
+        let uses_new_detection = best
+            .and_then(|entry| entry.name.as_deref())
+            .is_none_or(|name| name.trim().is_empty());
+        let is_launcher = best.and_then(|entry| entry.is_launcher).unwrap_or(false);
+        let steam_app_id = app.third_party_skus.as_ref().and_then(|skus| {
+            skus.iter()
+                .find(|sku| {
+                    sku.distributor
+                        .as_deref()
+                        .is_some_and(|distributor| distributor.eq_ignore_ascii_case("steam"))
+                })
+                .and_then(|sku| sku.id.clone())
+        });
+
+        games.push(DatabaseGame {
+            id: app.id.unwrap_or_default(),
+            name_lower: name.to_lowercase(),
+            name,
+            exe,
+            is_launcher,
+            uses_new_detection,
+            steam_app_id,
+            icon_hash: app.icon_hash,
+            cover_image_hash: app.cover_image_hash,
+        });
+    }
+
+    games.sort_by(|left, right| left.name_lower.cmp(&right.name_lower));
+    games
+}
+
+fn load_database(path: &Path) -> Vec<DatabaseGame> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Vec<DetectableApp>>(&raw).ok())
+        .map(to_database_games)
+        .unwrap_or_default()
+}
+
+fn fetch_gamelist(path: &Path) -> Result<bool, String> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Dummies/1.0")
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(DISCORD_DETECTABLE_URL)
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|error| error.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!("Discord API returned {}", response.status()));
+    }
+
+    let text = response.text().map_err(|error| error.to_string())?;
+    let remote = text.trim();
+    let local = fs::read_to_string(path)
+        .ok()
+        .map(|content| content.trim().to_string());
+
+    if local.as_deref() == Some(remote) {
+        return Ok(false);
+    }
+
+    if local.is_some() {
+        let _ = fs::copy(path, path.with_extension("json.bak"));
+    }
+
+    let temporary = path.with_extension("json.tmp");
+    fs::write(&temporary, format!("{remote}\n")).map_err(|error| error.to_string())?;
+    fs::rename(&temporary, path).map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+fn load_library(path: &Path) -> Vec<LibraryGame> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Vec<LibraryGame>>(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn write_library(path: &Path, library: &[LibraryGame]) -> Result<(), String> {
+    let json = serde_json::to_vec_pretty(library).map_err(|error| error.to_string())?;
+    let temporary = path.with_extension("json.tmp");
+    fs::write(&temporary, json).map_err(|error| error.to_string())?;
+    fs::rename(&temporary, path).map_err(|error| error.to_string())
+}
+
+fn enrich_library(library: &mut [LibraryGame], database: &[DatabaseGame]) -> bool {
+    let index: HashMap<&str, &DatabaseGame> = database
+        .iter()
+        .map(|game| (game.id.as_str(), game))
+        .collect();
+    let mut changed = false;
+
+    for game in library {
+        let Some(database_game) = index.get(game.app_id.as_str()) else {
+            continue;
+        };
+
+        if game.cover_image_hash.is_none() && database_game.cover_image_hash.is_some() {
+            game.cover_image_hash = database_game.cover_image_hash.clone();
+            changed = true;
+        }
+        if game.icon_hash.is_none() && database_game.icon_hash.is_some() {
+            game.icon_hash = database_game.icon_hash.clone();
+            changed = true;
+        }
+        if game.steam_app_id.is_none() && database_game.steam_app_id.is_some() {
+            game.steam_app_id = database_game.steam_app_id.clone();
+            changed = true;
+        }
+
+        let requires_steam = database_game.uses_new_detection
+            && game
+                .steam_app_id
+                .as_deref()
+                .is_some_and(|id| !id.trim().is_empty());
+        if game.requires_steam != requires_steam {
+            game.requires_steam = requires_steam;
+            changed = true;
+        }
+    }
+
+    changed
+}
+
+fn page_database(
+    database: &[DatabaseGame],
+    filter: &str,
+    offset: usize,
+    limit: usize,
+) -> DatabasePage {
+    let term = filter.trim().to_lowercase();
+    let limit = limit.clamp(1, 200);
+    let mut items = Vec::new();
+    let mut matched = 0;
+    let mut has_more = false;
+
+    for game in database {
+        if !term.is_empty() && !game.name_lower.contains(&term) {
+            continue;
+        }
+
+        if matched >= offset && items.len() < limit {
+            items.push(game.clone());
+        }
+        matched += 1;
+
+        if items.len() >= limit && matched > offset + limit {
+            has_more = true;
+            break;
+        }
+    }
+
+    DatabasePage {
+        items,
+        offset,
+        limit,
+        has_more,
+    }
+}
+
+fn migrate_legacy_data(paths: &AppPaths) {
+    let Some(appdata) = std::env::var_os("APPDATA") else {
+        return;
+    };
+    let base = PathBuf::from(appdata);
+    let candidates = [
+        "discord-fake-game-launcher-ui",
+        "Discord Fake Game Launcher",
+        "discord-fake-game-launcher",
+        "ds-fake-game-launcher",
+    ];
+
+    for candidate in candidates {
+        let directory = base.join(candidate);
+        if !directory.is_dir() {
+            continue;
+        }
+
+        let files = [
+            ("myGames.json", &paths.my_games_path),
+            ("settings.json", &paths.settings_path),
+            ("gamelist.json", &paths.gamelist_path),
+        ];
+        let mut copied = false;
+
+        for (name, destination) in files {
+            if destination.exists() {
+                continue;
+            }
+            let source = directory.join(name);
+            if source.is_file() && fs::copy(&source, destination).is_ok() {
+                copied = true;
+            }
+        }
+
+        if copied {
+            break;
+        }
+    }
 }
 
 fn sanitize_component(value: &str) -> Option<String> {
@@ -335,13 +700,176 @@ fn get_bootstrap(state: State<AppState>) -> Result<Bootstrap, String> {
         .lock()
         .map_err(|error| error.to_string())?
         .clone();
+    let mut library = load_library(&state.paths.my_games_path);
+    {
+        let database = state.database.read().map_err(|error| error.to_string())?;
+        if enrich_library(&mut library, &database) {
+            let _ = write_library(&state.paths.my_games_path, &library);
+        }
+    }
 
     Ok(Bootstrap {
         settings,
         system_locale: get_system_locale(),
         running_keys: running_keys(&state)?,
+        library,
         version: env!("CARGO_PKG_VERSION").to_string(),
     })
+}
+
+#[tauri::command]
+async fn sync_gamelist(state: State<'_, AppState>) -> Result<SyncResult, String> {
+    let path = state.paths.gamelist_path.clone();
+    let fetch_path = path.clone();
+    let updated = tauri::async_runtime::spawn_blocking(move || fetch_gamelist(&fetch_path))
+        .await
+        .map_err(|error| error.to_string())??;
+    let database = load_database(&path);
+    let count = database.len();
+    *state.database.write().map_err(|error| error.to_string())? = database;
+
+    Ok(SyncResult {
+        updated,
+        count,
+        path: path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+fn get_database_page(
+    state: State<AppState>,
+    filter: String,
+    offset: usize,
+    limit: usize,
+) -> Result<DatabasePage, String> {
+    let database = state.database.read().map_err(|error| error.to_string())?;
+    Ok(page_database(&database, &filter, offset, limit))
+}
+
+#[tauri::command]
+fn get_library(state: State<AppState>) -> Result<Vec<LibraryGame>, String> {
+    let mut library = load_library(&state.paths.my_games_path);
+    {
+        let database = state.database.read().map_err(|error| error.to_string())?;
+        if enrich_library(&mut library, &database) {
+            let _ = write_library(&state.paths.my_games_path, &library);
+        }
+    }
+    Ok(library)
+}
+
+#[tauri::command]
+fn add_game(state: State<AppState>, request: AddGameRequest) -> Result<LibraryGame, String> {
+    let name = request.name.trim().to_string();
+    if name.is_empty() {
+        return Err("Game name is required".to_string());
+    }
+
+    let app_id = request.id.trim().to_string();
+    let app_id = if app_id.is_empty() {
+        sanitize_component(&name).ok_or_else(|| "Invalid app id".to_string())?
+    } else {
+        app_id
+    };
+    let exe_path =
+        sanitize_relative_exe(&request.exe).ok_or_else(|| "Invalid executable path".to_string())?;
+    let exe = exe_path.to_string_lossy().to_string();
+    let steam_app_id = request.steam_app_id.filter(|id| !id.trim().is_empty());
+    let requires_steam = request.uses_new_detection && steam_app_id.is_some();
+
+    let mut library = load_library(&state.paths.my_games_path);
+    if let Some(existing) = library
+        .iter()
+        .find(|game| game.app_id == app_id && game.exe == exe)
+    {
+        return Ok(existing.clone());
+    }
+
+    let entry = LibraryGame {
+        app_id,
+        name,
+        exe,
+        is_favorite: false,
+        steam_app_id,
+        icon_hash: request.icon_hash,
+        cover_image_hash: request.cover_image_hash,
+        requires_steam,
+        ..LibraryGame::default()
+    };
+
+    library.push(entry.clone());
+    write_library(&state.paths.my_games_path, &library)?;
+    Ok(entry)
+}
+
+#[tauri::command]
+fn remove_game(state: State<AppState>, app_id: String, exe: String) -> Result<bool, String> {
+    let mut library = load_library(&state.paths.my_games_path);
+    let before = library.len();
+    library.retain(|game| !(game.app_id == app_id && game.exe == exe));
+    let removed = library.len() != before;
+
+    if removed {
+        write_library(&state.paths.my_games_path, &library)?;
+    }
+
+    Ok(removed)
+}
+
+#[tauri::command]
+fn toggle_favorite(
+    state: State<AppState>,
+    app_id: String,
+    exe: String,
+) -> Result<LibraryGame, String> {
+    let mut library = load_library(&state.paths.my_games_path);
+    let game = library
+        .iter_mut()
+        .find(|game| game.app_id == app_id && game.exe == exe)
+        .ok_or_else(|| "Game not found in library".to_string())?;
+    game.is_favorite = !game.is_favorite;
+    let updated = game.clone();
+    write_library(&state.paths.my_games_path, &library)?;
+    Ok(updated)
+}
+
+#[tauri::command]
+fn update_game_executable(
+    state: State<AppState>,
+    app_id: String,
+    old_exe: String,
+    new_exe: String,
+) -> Result<LibraryGame, String> {
+    let running_key = format!("{app_id}::{old_exe}");
+    if state
+        .running
+        .lock()
+        .map_err(|error| error.to_string())?
+        .contains_key(&running_key)
+    {
+        return Err("Stop the game before changing its executable".to_string());
+    }
+
+    let mut path =
+        sanitize_relative_exe(&new_exe).ok_or_else(|| "Invalid executable path".to_string())?;
+    if path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_none_or(|extension| !extension.eq_ignore_ascii_case("exe"))
+    {
+        path.set_extension("exe");
+    }
+    let new_exe = path.to_string_lossy().to_string();
+
+    let mut library = load_library(&state.paths.my_games_path);
+    let game = library
+        .iter_mut()
+        .find(|game| game.app_id == app_id && game.exe == old_exe)
+        .ok_or_else(|| "Game not found in library".to_string())?;
+    game.exe = new_exe;
+    let updated = game.clone();
+    write_library(&state.paths.my_games_path, &library)?;
+    Ok(updated)
 }
 
 #[tauri::command]
@@ -471,15 +999,20 @@ pub fn run() {
             fs::create_dir_all(&data_dir)?;
             let games_dir = data_dir.join("games");
             fs::create_dir_all(&games_dir)?;
-            let settings_path = data_dir.join("settings.json");
-            let settings = load_settings(&settings_path);
+            let paths = AppPaths {
+                games_dir,
+                settings_path: data_dir.join("settings.json"),
+                my_games_path: data_dir.join("myGames.json"),
+                gamelist_path: data_dir.join("gamelist.json"),
+            };
+            migrate_legacy_data(&paths);
+            let settings = load_settings(&paths.settings_path);
+            let database = load_database(&paths.gamelist_path);
 
             let state = AppState {
-                paths: AppPaths {
-                    games_dir,
-                    settings_path,
-                },
+                paths,
                 settings: Mutex::new(settings),
+                database: RwLock::new(database),
                 running: Arc::new(Mutex::new(HashMap::new())),
             };
             let running = state.running.clone();
@@ -493,6 +1026,13 @@ pub fn run() {
             save_settings,
             get_system_locale,
             get_bootstrap,
+            sync_gamelist,
+            get_database_page,
+            get_library,
+            add_game,
+            remove_game,
+            toggle_favorite,
+            update_game_executable,
             launch_dummy,
             stop_dummy,
             stop_all_dummies,
@@ -581,6 +1121,72 @@ mod tests {
     }
 
     #[test]
+    fn builds_database_games_and_prefers_non_launcher_win32() {
+        let games = to_database_games(vec![DetectableApp {
+            id: Some("123".to_string()),
+            name: Some("Example Game".to_string()),
+            executables: Some(vec![
+                AppExecutable {
+                    name: Some("launcher.exe".to_string()),
+                    os: Some("win32".to_string()),
+                    is_launcher: Some(true),
+                },
+                AppExecutable {
+                    name: Some("game.exe".to_string()),
+                    os: Some("win32".to_string()),
+                    is_launcher: Some(false),
+                },
+            ]),
+            icon_hash: Some("icon".to_string()),
+            cover_image_hash: Some("cover".to_string()),
+            third_party_skus: Some(vec![ThirdPartySku {
+                distributor: Some("steam".to_string()),
+                id: Some("456".to_string()),
+            }]),
+        }]);
+
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].exe, "game.exe");
+        assert_eq!(games[0].steam_app_id.as_deref(), Some("456"));
+        assert!(!games[0].uses_new_detection);
+    }
+
+    #[test]
+    fn pages_and_filters_database_games() {
+        let database = to_database_games(vec![
+            DetectableApp {
+                id: Some("1".to_string()),
+                name: Some("Alpha".to_string()),
+                executables: Some(vec![AppExecutable {
+                    name: Some("alpha.exe".to_string()),
+                    os: Some("win32".to_string()),
+                    is_launcher: Some(false),
+                }]),
+                icon_hash: None,
+                cover_image_hash: None,
+                third_party_skus: None,
+            },
+            DetectableApp {
+                id: Some("2".to_string()),
+                name: Some("Beta".to_string()),
+                executables: Some(vec![AppExecutable {
+                    name: Some("beta.exe".to_string()),
+                    os: Some("win32".to_string()),
+                    is_launcher: Some(false),
+                }]),
+                icon_hash: None,
+                cover_image_hash: None,
+                third_party_skus: None,
+            },
+        ]);
+
+        let page = page_database(&database, "a", 0, 1);
+        assert_eq!(page.items.len(), 1);
+        assert!(page.has_more);
+        assert_eq!(page.items[0].name, "Alpha");
+    }
+
+    #[test]
     fn copies_dummy_into_the_game_folder() {
         let directory = temporary_directory("dummy");
         let source = directory.join("source.exe");
@@ -591,6 +1197,8 @@ mod tests {
         let paths = AppPaths {
             games_dir: games.clone(),
             settings_path: directory.join("settings.json"),
+            my_games_path: directory.join("myGames.json"),
+            gamelist_path: directory.join("gamelist.json"),
         };
         let (destination, working_dir) =
             prepare_dummy(&source, &paths, "123", "Binaries/Win64/game.exe").expect("prepare");
