@@ -75,6 +75,7 @@ export interface DummyExitedPayload {
 export interface QuestTick {
   key: string;
   name: string;
+  timerId: number;
   remainingSeconds: number;
   phase: "playing" | "syncing" | "complete";
   percent: number;

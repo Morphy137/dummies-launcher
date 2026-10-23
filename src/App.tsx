@@ -8,7 +8,7 @@ import {
 } from "@fluentui/react-icons";
 import { isTauri } from "@tauri-apps/api/core";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import AddGameDialog from "./components/AddGameDialog";
 import GameDetail from "./components/GameDetail";
@@ -92,6 +92,7 @@ export default function App() {
   const [systemLocale, setSystemLocale] = useState("en");
   const [runningKeys, setRunningKeys] = useState<Set<string>>(() => new Set());
   const [questTicks, setQuestTicks] = useState<Record<string, QuestTick>>({});
+  const pauseIntentRef = useRef<Record<string, { desired: boolean; at: number }>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState<{
@@ -180,6 +181,7 @@ export default function App() {
         delete next[payload.key];
         return next;
       });
+      delete pauseIntentRef.current[payload.key];
       setBusyKey((current) => (current === payload.key ? null : current));
     });
   }, []);
@@ -188,7 +190,27 @@ export default function App() {
     if (!isTauri()) return;
 
     return onQuestTick((tick) => {
-      setQuestTicks((current) => ({ ...current, [tick.key]: tick }));
+      const intent = pauseIntentRef.current[tick.key];
+      if (intent && tick.paused !== intent.desired && Date.now() - intent.at < 2000) {
+        return;
+      }
+      if (intent && tick.paused === intent.desired) {
+        delete pauseIntentRef.current[tick.key];
+      }
+
+      setQuestTicks((current) => {
+        const existing = current[tick.key];
+        if (existing) {
+          if (tick.timerId < existing.timerId) return current;
+          if (
+            tick.timerId === existing.timerId &&
+            tick.remainingSeconds > existing.remainingSeconds
+          ) {
+            return current;
+          }
+        }
+        return { ...current, [tick.key]: tick };
+      });
     });
   }, []);
 
@@ -319,6 +341,7 @@ export default function App() {
 
     const wasRunning = runningKeys.has(gameKey);
     setBusyKey(gameKey);
+    delete pauseIntentRef.current[gameKey];
 
     try {
       if (wasRunning) {
@@ -354,11 +377,14 @@ export default function App() {
     const gameKey = makeGameKey(game);
     if (!runningKeys.has(gameKey) || !settings.questTimerEnabled) return;
 
+    const desired = !game.paused;
+    pauseIntentRef.current[gameKey] = { desired, at: Date.now() };
+
     try {
-      if (game.paused) {
-        await resumeDummy(gameKey);
-      } else {
+      if (desired) {
         await pauseDummy(gameKey);
+      } else {
+        await resumeDummy(gameKey);
       }
 
       setQuestTicks((current) => {
@@ -366,10 +392,11 @@ export default function App() {
         if (!tick) return current;
         return {
           ...current,
-          [gameKey]: { ...tick, paused: !game.paused },
+          [gameKey]: { ...tick, paused: desired },
         };
       });
     } catch (error: unknown) {
+      delete pauseIntentRef.current[gameKey];
       showToast(error instanceof Error ? error.message : String(error));
     }
   };

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::ffi::c_void;
+use std::hash::{BuildHasher, Hasher};
 use std::io::{self, BufRead};
 use std::mem::{size_of, zeroed};
 use std::ptr::null_mut;
@@ -20,13 +21,14 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
     GWLP_USERDATA, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
-    HTCLIENT, IDC_ARROW, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, KillTimer,
-    LoadCursorW, MSG, PostMessageW, PostQuitMessage, RegisterClassW, SIZE_MINIMIZED, SM_CXSCREEN,
-    SM_CYSCREEN, SW_HIDE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SWP_SHOWWINDOW, SetCursor, SetForegroundWindow, SetTimer, SetWindowLongPtrW,
-    SetWindowPos, ShowWindow, TranslateMessage, ULW_ALPHA, UpdateLayeredWindow, WM_APP, WM_CLOSE,
-    WM_DESTROY, WM_ERASEBKGND, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR,
-    WM_SIZE, WM_TIMER, WNDCLASSW, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_MINIMIZEBOX,
+    HTCLIENT, ICON_BIG, ICON_SMALL, IDC_ARROW, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE,
+    IDI_APPLICATION, KillTimer, LoadCursorW, LoadIconW, MSG, PostMessageW, PostQuitMessage,
+    RegisterClassW, SIZE_MINIMIZED, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_MINIMIZE, SW_RESTORE,
+    SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SendMessageW,
+    SetCursor, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    TranslateMessage, ULW_ALPHA, UpdateLayeredWindow, WM_APP, WM_CLOSE, WM_DESTROY, WM_ERASEBKGND,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WM_SETICON, WM_SIZE,
+    WM_TIMER, WNDCLASSW, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_MINIMIZEBOX,
     WS_POPUP, WS_SYSMENU,
 };
 
@@ -963,11 +965,15 @@ fn start_stdin_listener(hwnd: HWND) {
 
 fn main() {
     let options = parse_options(std::env::args().skip(1));
-    let art_index = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos() as usize)
-        .unwrap_or_default()
-        % ART_PAIRS.len();
+    let mut random = std::collections::hash_map::RandomState::new().build_hasher();
+    random.write_u64(u64::from(std::process::id()));
+    random.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default(),
+    );
+    let art_index = (random.finish() as usize) % ART_PAIRS.len();
     let (open_bytes, closed_bytes) = ART_PAIRS[art_index];
     let open = decode_frame(open_bytes);
     let closed = decode_frame(closed_bytes);
@@ -980,6 +986,14 @@ fn main() {
         window_class.style = CS_HREDRAW | CS_VREDRAW;
         window_class.lpfnWndProc = Some(window_proc);
         window_class.hInstance = instance;
+        let icon_name = std::ptr::without_provenance::<u16>(1);
+        let icon = LoadIconW(instance, icon_name);
+        let icon = if icon.is_null() {
+            LoadIconW(null_mut(), IDI_APPLICATION)
+        } else {
+            icon
+        };
+        window_class.hIcon = icon;
         window_class.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
         window_class.lpszClassName = class_name.as_ptr();
         RegisterClassW(&window_class);
@@ -1007,6 +1021,9 @@ fn main() {
         if hwnd.is_null() {
             std::process::exit(1);
         }
+
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, icon as LPARAM);
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL as WPARAM, icon as LPARAM);
 
         let state = Box::new(WindowState::new(open, closed, options.minimize_to_tray));
         let state = Box::into_raw(state);
