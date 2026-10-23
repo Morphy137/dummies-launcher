@@ -3,7 +3,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -17,6 +17,8 @@ use winreg::RegKey;
 use winreg::enums::HKEY_CURRENT_USER;
 
 const DISCORD_DETECTABLE_URL: &str = "https://discord.com/api/applications/detectable";
+
+static NEXT_TIMER_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -263,6 +265,7 @@ impl QuestClock {
 struct QuestTick {
     key: String,
     name: String,
+    timer_id: u64,
     remaining_seconds: u64,
     phase: String,
     percent: u8,
@@ -739,14 +742,19 @@ fn stop_all_internal(state: &AppState) {
     }
 }
 
-fn start_quest_timer(
-    app: AppHandle,
-    key: String,
-    name: String,
+struct QuestTimerConfig {
     target_minutes: u32,
     buffer_seconds: u32,
     auto_stop: bool,
     notify: bool,
+}
+
+fn start_quest_timer(
+    app: AppHandle,
+    key: String,
+    name: String,
+    timer_id: u64,
+    config: QuestTimerConfig,
 ) -> (Arc<AtomicBool>, Arc<Mutex<QuestClock>>) {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_signal = stop.clone();
@@ -754,8 +762,8 @@ fn start_quest_timer(
     let clock_signal = clock.clone();
 
     thread::spawn(move || {
-        let target = u64::from(target_minutes) * 60;
-        let total = target + u64::from(buffer_seconds);
+        let target = u64::from(config.target_minutes) * 60;
+        let total = target + u64::from(config.buffer_seconds);
 
         loop {
             if stop_signal.load(Ordering::SeqCst) {
@@ -784,6 +792,7 @@ fn start_quest_timer(
                 QuestTick {
                     key: key.clone(),
                     name: name.clone(),
+                    timer_id,
                     remaining_seconds: remaining,
                     phase: phase.to_string(),
                     percent,
@@ -792,7 +801,7 @@ fn start_quest_timer(
             );
 
             if phase == "complete" {
-                if notify {
+                if config.notify {
                     let _ = app
                         .notification()
                         .builder()
@@ -801,7 +810,7 @@ fn start_quest_timer(
                         .show();
                 }
 
-                if auto_stop {
+                if config.auto_stop {
                     let state = app.state::<AppState>();
                     let dummy = state
                         .running
@@ -1556,14 +1565,18 @@ fn launch_dummy(
         .ok_or_else(|| "Could not open dummy stdin".to_string())?;
 
     let (timer_stop, quest_clock) = if settings.quest_timer_enabled {
+        let timer_id = NEXT_TIMER_ID.fetch_add(1, Ordering::Relaxed);
         let (stop, clock) = start_quest_timer(
             app.clone(),
             game_key.clone(),
             name.clone(),
-            settings.quest_duration_minutes,
-            settings.quest_sync_buffer_seconds,
-            settings.auto_stop_on_complete,
-            settings.notify_on_complete,
+            timer_id,
+            QuestTimerConfig {
+                target_minutes: settings.quest_duration_minutes,
+                buffer_seconds: settings.quest_sync_buffer_seconds,
+                auto_stop: settings.auto_stop_on_complete,
+                notify: settings.notify_on_complete,
+            },
         );
         (Some(stop), Some(clock))
     } else {
