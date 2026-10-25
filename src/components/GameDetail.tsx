@@ -157,19 +157,6 @@ export default function GameDetail({
             {game.running ? (
               <div className="detail__timer">
                 <RetroClock time={game.remaining} paused={game.paused} large />
-                {game.phase ? (
-                  <div className="quest-dock">
-                    <span role="status" aria-live="polite">
-                      {t(game.paused ? "game.paused" : `game.${game.phase}`)}
-                    </span>
-                    <progress
-                      max={100}
-                      value={game.percent ?? 0}
-                      aria-label={t("game.timerProgress")}
-                    />
-                    <small>{t("game.localTimer")}</small>
-                  </div>
-                ) : null}
               </div>
             ) : null}
             <h1>{game.name}</h1>

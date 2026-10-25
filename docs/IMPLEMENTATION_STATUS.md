@@ -16,7 +16,7 @@ The subsequent backend-refactor commit separates the implementation without addi
 - Persistence: errors instead of silently empty libraries, flushed unique temporaries,
   backups, operation serialization, validated catalog replacement and per-file migration.
 - UI: actionable list, working detail action/Ctrl+K, bounded catalog pages, nonblocking cached
-  searching, stale-response protection, distinct empty/error/loading states, timer dock,
+  searching, stale-response protection, distinct empty/error/loading states, shared retro countdown,
   explicit Save/Cancel, imported options, focus restoration, responsive columns and keyboard support.
 - Localization/accessibility: document language, translated errors/native copy, high-contrast
   styles, selectable data, larger icon targets and delayed subscription cleanup.
@@ -35,7 +35,7 @@ The subsequent backend-refactor commit separates the implementation without addi
 | Command/check | Result |
 | --- | --- |
 | `pnpm check` | Pass: Biome and TypeScript |
-| `pnpm test` | 28 tests pass |
+| `pnpm test` | 43 tests pass (including the clock UI follow-up) |
 | `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 28 tests pass |
 | `cargo test --locked --manifest-path crates/dummy-game/Cargo.toml` | 5 tests pass |
 | `cargo fmt --manifest-path <each Cargo.toml> -- --check` | Both pass |
@@ -53,6 +53,19 @@ The subsequent backend-refactor commit separates the implementation without addi
 The refactor reruns frontend checks/tests, both Rust test suites, Rustfmt/Clippy and the release/portable
 builds. Native protocol, standalone behavior, DLL inspection and browser preview rows describe the
 earlier safety-pass smoke checks, not additional manual qualification of the refactor.
+
+### Retro clock UI follow-up
+
+The card and game detail now share a blue seven-segment SVG countdown in a dark, bordered
+clock case, without neon glow or pulsing. The phase/progress/explanation dock is removed.
+The card clock hides immediately on hover or keyboard focus and returns when controls are
+no longer shown, avoiding overlap with favorites/pause/stop. Timer behavior is unchanged.
+
+`pnpm check` and all 43 frontend tests pass, including 15 new digit/presentation tests.
+Browser checks with isolated fixture data confirmed both sizes, hover/focus hiding and
+restoration, and no progress dock or console warnings/errors. Release/portable builds are
+refreshed for local testing. Backend tests were not rerun for this UI-only follow-up;
+their 28 + 5 passing results above are from the backend-refactor validation.
 
 The current static-CRT dummy is 933,888 bytes (912 KiB). Private working set in the
 protocol smoke test: 3.6 MB initially hidden, 4.0 MB visible/hidden after showing.

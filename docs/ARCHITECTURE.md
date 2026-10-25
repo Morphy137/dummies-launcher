@@ -98,7 +98,9 @@ and stops children. No close-to-tray behavior is claimed.
 
 Timer target, buffer, auto-stop and notification options are snapshots at launch.
 Settings changes affect new sessions. Pausing pauses only the local clock, not presence.
-The detail dock displays phase/progress/buffer guidance; it never claims verified quest completion.
+The card and detail share a framed seven-segment countdown without phase/progress copy.
+The card hides the clock on hover or keyboard focus so favorite/pause/stop controls do not overlap it.
+The countdown is a local estimate, not verified quest completion.
 
 ## UI and security
 
