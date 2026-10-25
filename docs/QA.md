@@ -4,6 +4,8 @@ Use a disposable Windows profile/VM and a dedicated Steam test library. Never te
 
 - [ ] Windows 10/11; light/dark/system; forced colors; 100/150/200% DPI and two monitors.
 - [ ] Keyboard-only search, grid arrows, list actions, detail Escape/focus restoration, dialogs.
+- [ ] Switch All/Favorites/Active with overflowing, short and empty results in grid/list views;
+  search, filters, action buttons and view toggles must retain the same horizontal position.
 - [ ] Settings Save, Cancel, Escape, backdrop; save denied; unusual imported durations/buffers.
 - [ ] Catalog cached/offline, initial empty cache, failed refresh, changing query/page while loading.
 - [ ] Launch 1/3 dummies; minimize each, restore through tray, close each; stop all; quit launcher.

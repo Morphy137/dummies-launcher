@@ -67,6 +67,14 @@ restoration, and no progress dock or console warnings/errors. Release/portable b
 refreshed for local testing. Backend tests were not rerun for this UI-only follow-up;
 their 28 + 5 passing results above are from the backend-refactor validation.
 
+### Library filter layout follow-up
+
+The library reserves its 10 px custom scrollbar gutter and compensates the inline padding,
+so overflowing All results retain the existing Favorites/Active content width. Browser geometry
+checks with isolated fixture data passed at 940/1100/1280 px in grid/list views, including empty
+results: search, filters, actions, view toggles and heading/content bounds remain identical
+across filters. `pnpm check` and all 43 frontend tests pass; Rust code is unchanged.
+
 The current static-CRT dummy is 933,888 bytes (912 KiB). Private working set in the
 protocol smoke test: 3.6 MB initially hidden, 4.0 MB visible/hidden after showing.
 The launcher process tree has **not** been rebenchmarked; the old ~147 MB result is historical.
