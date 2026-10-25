@@ -2,6 +2,9 @@
 
 2026-10-25, review fixes based on `59f7171`. Recorded locally on `development`; no publication or deployment performed.
 
+The functional safety/UI/distribution pass is commit `954cbef` (`fix: harden Steam integration and managed dummy workflows`).
+The subsequent backend-refactor commit separates the implementation without adding dependencies or changing IPC names.
+
 ## Implemented
 
 - Steam: strict path validation, reparse-point rejection, registered-library selection,
@@ -20,14 +23,20 @@
 - Security/distribution: CSP, removed opener, release logging, update install guard,
   portable marker/manual updates, root static-CRT config, packaged license inventories,
   CI checks before release and truthful architecture/QA documentation.
+- Backend: extracted models/state, settings, library/catalog/bootstrap, storage/path validation/migration,
+  Steam, binary resources/targets, process lifecycle/timers, tray and shortcuts. `lib.rs` now composes
+  the app; `commands.rs` contains thin IPC adapters. Services borrow `AppState` directly, making
+  library identity, running-entry protection and concurrent mutations testable without a webview.
+- Contract regression coverage: Rust request deserialization/result serialization and frontend command
+  argument tests, including nullable exit codes, timer snapshots and unknown persisted fields.
 
 ## Local verification
 
 | Command/check | Result |
 | --- | --- |
 | `pnpm check` | Pass: Biome and TypeScript |
-| `pnpm test` | 12 tests pass |
-| `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 21 tests pass |
+| `pnpm test` | 28 tests pass |
+| `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 28 tests pass |
 | `cargo test --locked --manifest-path crates/dummy-game/Cargo.toml` | 5 tests pass |
 | `cargo fmt --manifest-path <each Cargo.toml> -- --check` | Both pass |
 | `cargo clippy --locked --manifest-path <each Cargo.toml> --all-targets -- -D warnings` | Both pass |
@@ -38,6 +47,12 @@
 | MSVC `dumpbin /dependents` on release dummy | System DLLs only; no VC runtime DLL dependency |
 | Browser preview | Settings language preview, Escape reversion, Ctrl+K and overflow checked; no console warnings/errors |
 | `git diff --check` | Pass |
+| Normalized extraction comparison against `954cbef` | All 77 original top-level functions retained; bodies unchanged except state borrowing/registration plumbing and formatting |
+| Command registration parity | Same 24 names, each registered exactly once |
+
+The refactor reruns frontend checks/tests, both Rust test suites, Rustfmt/Clippy and the release/portable
+builds. Native protocol, standalone behavior, DLL inspection and browser preview rows describe the
+earlier safety-pass smoke checks, not additional manual qualification of the refactor.
 
 The current static-CRT dummy is 933,888 bytes (912 KiB). Private working set in the
 protocol smoke test: 3.6 MB initially hidden, 4.0 MB visible/hidden after showing.
@@ -52,8 +67,8 @@ Vite reports a nonfatal ~568 kB minified entry chunk; chunk splitting remains an
 - The generated inventory contains 421 dependencies, including a conservative build/platform
   superset. 13 packages have no license text in their installed package and are explicitly marked
   for manual review. This is not a declaration of complete legal compliance.
-- Storage and tests are extracted from the backend. A full domain/services/platform module split,
-  generated IPC bindings, and a dedicated app-core crate have not been introduced in this safety pass.
+- Generated IPC bindings and a dedicated platform-independent app-core crate have not been introduced.
+  Contract regression tests reduce drift but do not replace generated bindings or end-to-end IPC testing.
 - Multi-file Steam rollback handles ordinary errors, not arbitrary power loss or a privileged
   local process racing filesystem operations. Unverifiable legacy files are preserved for inspection.
 - Automated CI is configured but has not been executed remotely. No installer was installed and

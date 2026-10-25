@@ -6,13 +6,28 @@ Updated: 2026-10-25. This document describes the implementation, not the former 
 
 - `src/`: React, TypeScript, Fluent UI, i18next; browser preview has no desktop backend.
 - `src/lib/backend.ts`: IPC boundary. Persisted `LibraryGame` and runtime `Game` are separate types.
-- `src-tauri/src/lib.rs`: Tauri commands, library/catalog, Steam, processes, timers and tray.
-- `src-tauri/src/storage.rs`: validated JSON reads, unique temporary files, flush, backup and atomic replacement.
-- `src-tauri/src/regression_tests.rs`: isolated filesystem/process regression tests; never touches a real Steam installation.
+- `src-tauri/src/lib.rs`: application composition, plugins, state setup, command registration and shutdown.
+- `src-tauri/src/commands.rs`: the 24 IPC adapters; existing names, payloads and async dispatch modes are preserved.
+- `src-tauri/src/models.rs`: persisted models and IPC/event DTOs without desktop-runtime dependencies.
+- `src-tauri/src/state.rs`: shared state, paths and the process-wide mutation/update gates.
+- `src-tauri/src/settings.rs`, `library.rs`, `catalog.rs`, `bootstrap.rs`: settings, validated library mutations,
+  catalog sync/search and startup/reconciliation snapshots.
+- `src-tauri/src/storage.rs`, `paths.rs`, `migration.rs`: atomic JSON/backup operations, Windows-safe path
+  validation/canonical containment and non-destructive legacy imports.
+- `src-tauri/src/steam.rs`: registered library discovery and fingerprint-verified setup/removal/rollback.
+- `src-tauri/src/resources.rs`, `dummy.rs`: binary discovery, template preparation and verified launch targets.
+- `src-tauri/src/processes.rs`, `timers.rs`: child lifecycle/monitoring, update exclusion, local clocks and completion.
+- `src-tauri/src/tray.rs`, `shortcuts.rs`: native window restoration, tray menus and managed Windows shortcuts.
+- `src-tauri/src/tests.rs`, `regression_tests.rs`, `ipc_contract_tests.rs`: unit, isolated filesystem/process,
+  service-concurrency and serialized-contract checks; never touches a real Steam installation.
+- `src/lib/backend.test.ts`: frontend IPC command/argument regression checks.
 - `crates/dummy-game`: native layered Win32 window and embedded PNG blink frames, no WebView.
 
 There is no `app-core` crate, Cargo workspace, generated Specta binding or Windows Job Object.
-Storage is extracted; further service/module extraction remains desirable, rather than claimed as implemented.
+The backend is split by responsibility inside the existing crate, not into a new dependency graph of crates.
+Services take `&AppState` rather than Tauri `State`; runtime-facing services still use `AppHandle` where
+events, resources or native menus are required. These are not claimed to be a platform-independent core.
+Cross-module APIs are crate-visible, not exported as a public library API. Test modules use explicit imports.
 
 ## Data and concurrency
 
@@ -23,7 +38,9 @@ portable user data. Unknown library/settings fields are preserved; Settings carr
 The single-instance plugin is registered first. A backend operation mutex serializes
 library read/modify/write and launch/setup/removal operations. Heavy commands use
 Tauri's asynchronous command dispatch; network synchronization has a separate gate.
-The frontend also deduplicates pending sync requests.
+The frontend also deduplicates pending sync requests. Services retain the original lock scopes;
+IPC adapters delegate without acquiring the same mutex again. Timer/file ID counters remain single
+statics in their owning modules, not per-command instances.
 
 Missing JSON initializes defaults. Malformed/unreadable library data returns an error;
 mutations do not overwrite it. JSON saves flush a uniquely named sibling temporary,

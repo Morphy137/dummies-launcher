@@ -1,4 +1,27 @@
-use super::*;
+use crate::catalog::{load_database, validate_catalog};
+use crate::dummy::prepare_dummy;
+use crate::library::{
+    add_game, load_library, remove_game, toggle_favorite, update_game_executable, write_library,
+};
+use crate::migration::migrate_legacy_from;
+use crate::models::{AddGameRequest, LibraryGame, Settings, SteamSetupRequest, SteamSetupResult};
+use crate::paths::{ensure_existing_within, sanitize_relative_exe};
+use crate::processes::{RunningDummy, stop_all_internal};
+use crate::settings::load_settings;
+use crate::state::{AppPaths, AppState};
+use crate::steam::{
+    read_owned_artifact, remove_steam_at, setup_steam_at, steam_layout, steam_manifest,
+    vdf_strings, write_new_artifact,
+};
+use crate::timers::QuestClock;
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+
+static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(1);
 
 struct Fixture {
     root: PathBuf,
@@ -12,7 +35,7 @@ impl Fixture {
         let root = std::env::temp_dir().join(format!(
             "dummies-regression-{}-{}",
             std::process::id(),
-            NEXT_TEMP_FILE_ID.fetch_add(1, Ordering::Relaxed)
+            NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(root.join("games")).unwrap();
         let source = root.join("source.exe");
@@ -71,6 +94,7 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        stop_all_internal(&self.state);
         let _ = fs::remove_dir_all(&self.root);
     }
 }
@@ -293,4 +317,99 @@ fn dropped_dummy_cancels_timer_and_clock_pause_is_idempotent() {
     assert!(!clock.pause());
     assert!(clock.resume());
     assert!(!clock.resume());
+}
+
+#[test]
+fn library_services_preserve_identity_and_reject_duplicate_executable_edits() {
+    let f = Fixture::new();
+    let added = add_game(
+        &f.state,
+        AddGameRequest {
+            id: "123".into(),
+            name: "Another entry".into(),
+            exe: "other.exe".into(),
+            uses_new_detection: false,
+            steam_app_id: None,
+            icon_hash: None,
+            cover_image_hash: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(added.exe, "other.exe");
+    assert!(
+        update_game_executable(
+            &f.state,
+            "123".into(),
+            "original.exe".into(),
+            "OTHER.EXE".into()
+        )
+        .is_err()
+    );
+    let favorite = toggle_favorite(&f.state, "123".into(), "other.exe".into()).unwrap();
+    assert!(favorite.is_favorite);
+    let library = load_library(&f.state.paths.my_games_path).unwrap();
+    assert_eq!(library.len(), 2);
+    assert!(!library[0].is_favorite);
+    assert!(remove_game(&f.state, "123".into(), "other.exe".into()).unwrap());
+    assert_eq!(
+        load_library(&f.state.paths.my_games_path).unwrap()[0].exe,
+        "original.exe"
+    );
+}
+
+#[test]
+fn extracted_library_mutations_keep_the_shared_operation_lock() {
+    let f = Fixture::new();
+    std::thread::scope(|scope| {
+        for _ in 0..2 {
+            let state = &f.state;
+            scope.spawn(move || {
+                for _ in 0..9 {
+                    toggle_favorite(state, "123".into(), "original.exe".into()).unwrap();
+                }
+            });
+        }
+    });
+    let library = load_library(&f.state.paths.my_games_path).unwrap();
+    assert_eq!(library.len(), 1);
+    assert!(!library[0].is_favorite);
+}
+
+#[test]
+fn library_services_refuse_mutation_while_a_dummy_is_tracked() {
+    let f = Fixture::new();
+    let mut child = Command::new("cmd")
+        .args(["/C", "set /p fixture="])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdin = child.stdin.take().unwrap();
+    f.state.running.lock().unwrap().insert(
+        "123::original.exe".into(),
+        RunningDummy {
+            child,
+            stdin,
+            name: "Example".into(),
+            timer_stop: None,
+            quest_clock: None,
+            last_tick: None,
+        },
+    );
+    assert!(remove_game(&f.state, "123".into(), "original.exe".into()).is_err());
+    assert!(
+        update_game_executable(
+            &f.state,
+            "123".into(),
+            "original.exe".into(),
+            "other.exe".into()
+        )
+        .is_err()
+    );
+    assert!(f.setup("456", "DedicatedDummy", "game.exe").is_err());
+    assert_eq!(
+        load_library(&f.state.paths.my_games_path).unwrap()[0].exe,
+        "original.exe"
+    );
 }
