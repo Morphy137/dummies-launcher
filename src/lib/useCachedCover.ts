@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getCachedCoverUrl, getCoverUrl } from "./coverCache";
+import { getCachedCoverUrl, getCoverUrl, retainCover } from "./coverCache";
 
 interface ResolvedCover {
   url: string;
@@ -19,10 +19,11 @@ export function useCachedCover(url: string | undefined): string | undefined {
       return;
     }
 
+    const release = retainCover(url);
     const cached = getCachedCoverUrl(url);
     if (cached) {
       setResolved({ url, src: cached });
-      return;
+      return release;
     }
 
     let cancelled = false;
@@ -35,6 +36,7 @@ export function useCachedCover(url: string | undefined): string | undefined {
 
     return () => {
       cancelled = true;
+      release();
     };
   }, [url]);
 

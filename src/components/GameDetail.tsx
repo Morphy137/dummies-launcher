@@ -56,6 +56,10 @@ export default function GameDetail({
   const exeInputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const backRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    backRef.current?.focus();
+  }, []);
 
   const candidates = getGameCoverCandidates(game);
   const {
@@ -106,6 +110,7 @@ export default function GameDetail({
   };
 
   const deleteGame = async () => {
+    if (game.running || game.useSteamPath) return;
     setDeleting(true);
     try {
       await onDelete(game);
@@ -118,7 +123,7 @@ export default function GameDetail({
 
   return (
     <div className="detail">
-      <button type="button" className="detail__back" onClick={onBack}>
+      <button ref={backRef} type="button" className="detail__back" onClick={onBack}>
         <ArrowLeft20Regular />
         {t("detail.back")}
       </button>
@@ -152,6 +157,19 @@ export default function GameDetail({
             {game.running ? (
               <div className="detail__timer">
                 <RetroClock time={game.remaining} paused={game.paused} large />
+                {game.phase ? (
+                  <div className="quest-dock">
+                    <span role="status" aria-live="polite">
+                      {t(game.paused ? "game.paused" : `game.${game.phase}`)}
+                    </span>
+                    <progress
+                      max={100}
+                      value={game.percent ?? 0}
+                      aria-label={t("game.timerProgress")}
+                    />
+                    <small>{t("game.localTimer")}</small>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             <h1>{game.name}</h1>
@@ -169,7 +187,7 @@ export default function GameDetail({
                 {game.running ? <Stop20Filled /> : <Play20Filled />}
                 {game.running ? t("game.stop") : t("game.play")}
               </button>
-              {game.running && canPause ? (
+              {game.running && canPause && game.phase && game.phase !== "complete" ? (
                 <button
                   type="button"
                   className="secondary-button detail__pause"
@@ -207,6 +225,7 @@ export default function GameDetail({
           {editingExe ? (
             <div className="detail__exe-edit">
               <input
+                aria-label={t("detail.executable")}
                 ref={exeInputRef}
                 className="detail__input"
                 value={exeDraft}
@@ -235,7 +254,7 @@ export default function GameDetail({
                 type="button"
                 className="icon-button icon-button--small"
                 onClick={startEditingExe}
-                disabled={game.running}
+                disabled={game.running || game.useSteamPath}
                 aria-label={t("detail.editExe")}
                 title={t("detail.editExe")}
               >
@@ -285,6 +304,7 @@ export default function GameDetail({
         </div>
 
         <div className="detail__danger">
+          {game.useSteamPath ? <p>{t("steam.removeBeforeDelete")}</p> : null}
           {confirmDelete ? (
             <div className="detail__confirm">
               <span>{t("detail.confirmDelete", { name: game.name })}</span>
@@ -292,7 +312,7 @@ export default function GameDetail({
                 type="button"
                 className="secondary-button detail__danger-button"
                 onClick={() => void deleteGame()}
-                disabled={deleting}
+                disabled={deleting || game.running || game.useSteamPath}
               >
                 {deleting ? t("detail.deleting") : t("detail.delete")}
               </button>
@@ -310,7 +330,7 @@ export default function GameDetail({
               type="button"
               className="secondary-button detail__danger-button"
               onClick={() => setConfirmDelete(true)}
-              disabled={game.running}
+              disabled={game.running || game.useSteamPath}
             >
               <Delete20Regular />
               {t("detail.delete")}

@@ -2,15 +2,11 @@ export type GameFilter = "all" | "favorites" | "active";
 export type ThemeMode = "system" | "dark" | "light";
 export type LanguageMode = "system" | "en" | "es";
 
-export interface Game {
+export interface LibraryGame {
   appId: string;
   name: string;
   exe: string;
   isFavorite: boolean;
-  running: boolean;
-  remaining?: string;
-  phase?: "playing" | "syncing" | "complete";
-  paused?: boolean;
   steamAppId?: string | null;
   iconHash?: string | null;
   coverImageHash?: string | null;
@@ -18,6 +14,15 @@ export interface Game {
   useSteamPath: boolean;
   installDir?: string | null;
   steamExePath?: string | null;
+  steamLibraryPath?: string | null;
+}
+
+export interface Game extends LibraryGame {
+  running: boolean;
+  remaining?: string;
+  phase?: "playing" | "syncing" | "complete";
+  percent?: number;
+  paused?: boolean;
 }
 
 export interface Settings {
@@ -50,13 +55,14 @@ export interface Bootstrap {
   settings: Settings;
   systemLocale: string;
   runningKeys: string[];
-  library: Game[];
+  library: LibraryGame[];
   version: string;
+  portable: boolean;
+  questTicks: QuestTick[];
 }
 
 export interface LaunchRequest {
   appId: string;
-  name: string;
   exe: string;
 }
 
@@ -69,7 +75,7 @@ export interface LaunchResult {
 export interface DummyExitedPayload {
   key: string;
   name: string;
-  code?: number;
+  code: number | null;
 }
 
 export interface QuestTick {
@@ -84,6 +90,8 @@ export interface QuestTick {
 
 export interface SteamSetupRequest {
   appId: string;
+  currentExe: string;
+  libraryPath: string | null;
   steamAppId: string;
   installDir: string;
   exe: string;
@@ -93,13 +101,13 @@ export interface SteamSetupResult {
   manifestPath: string;
   destExePath: string;
   steamPath: string;
-  updatedGame: Game;
+  updatedGame: LibraryGame;
 }
 
 export interface SteamRemoveResult {
   removedManifest: boolean;
   removedFolder: boolean;
-  updatedGame?: Game | null;
+  updatedGame?: LibraryGame | null;
 }
 
 export interface DatabaseGame {

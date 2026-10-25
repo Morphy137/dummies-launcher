@@ -12,7 +12,7 @@ The tiny process that Dummies copies and renames to the executable name Discord 
 - A small normal detection window sits under the face so Discord's window scan
   still sees a conventional titled window.
 - Visible by default; `--hidden` starts it hidden.
-- stdin commands: `SHOW`, `HIDE`, `QUIT`, `STOP`.
+- Managed mode (`--managed`): stdin commands `SHOW`, `HIDE`, `QUIT`, `STOP`.
 - `--no-tray` keeps the visible window in the taskbar when minimized.
 
 ## Build
@@ -55,4 +55,7 @@ The launcher writes newline-delimited commands to the dummy's stdin:
 | `HIDE` | Hide the window |
 | `QUIT` / `STOP` | Exit the process |
 
-The dummy exits on stdin EOF, so a crashed launcher does not leave orphan processes.
+In managed mode the dummy exits on stdin EOF, so a crashed launcher does not leave
+orphan processes. Standalone launches do not listen to stdin and minimize to the taskbar.
+Desktop shortcuts now target the launcher (`--launch <appId> <exe>`); the single-instance
+handler registers the dummy for timers and restoration from the launcher's tray menu.

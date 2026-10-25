@@ -7,6 +7,7 @@ import {
   Settings20Regular,
 } from "@fluentui/react-icons";
 import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -25,7 +26,9 @@ import {
   createShortcut,
   getBootstrap,
   launchDummy,
+  onDummyError,
   onDummyExited,
+  onDummyStarted,
   onQuestTick,
   pauseDummy,
   removeGame,
@@ -37,6 +40,7 @@ import {
   toggleFavorite,
   updateGameExecutable,
 } from "./lib/backend";
+import { formatError } from "./lib/errors";
 import { checkForUpdate, installUpdate } from "./lib/updater";
 import { useResolvedTheme } from "./theme/useResolvedTheme";
 import {
@@ -44,6 +48,7 @@ import {
   DEFAULT_SETTINGS,
   type Game,
   type GameFilter,
+  type LibraryGame,
   makeGameKey,
   type QuestTick,
   type Settings,
@@ -82,7 +87,12 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<GameFilter>("all");
   const [view, setView] = useState<ViewMode>("grid");
-  const [library, setLibrary] = useState<Game[]>([]);
+  const [library, setLibrary] = useState<LibraryGame[]>([]);
+  const [portable, setPortable] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const openedFrom = useRef<HTMLElement | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [steamGameKey, setSteamGameKey] = useState<string | null>(null);
   const [addGameOpen, setAddGameOpen] = useState(false);
@@ -91,6 +101,7 @@ export default function App() {
   const [version, setVersion] = useState("1.0.0");
   const [systemLocale, setSystemLocale] = useState("en");
   const [runningKeys, setRunningKeys] = useState<Set<string>>(() => new Set());
+  const runningRef = useRef(runningKeys);
   const [questTicks, setQuestTicks] = useState<Record<string, QuestTick>>({});
   const pauseIntentRef = useRef<Record<string, { desired: boolean; at: number }>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -107,6 +118,13 @@ export default function App() {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<number | undefined>();
   const [updateError, setUpdateError] = useState<string | null>(null);
+
+  useEffect(
+    () => () => {
+      if (availableUpdate) void availableUpdate.close().catch(() => {});
+    },
+    [availableUpdate],
+  );
 
   const resolvedTheme = useResolvedTheme(settings.theme);
   const language =
@@ -125,12 +143,21 @@ export default function App() {
         setSettings(data.settings);
         setSystemLocale(data.systemLocale);
         setRunningKeys(new Set(data.runningKeys));
+        setQuestTicks(Object.fromEntries(data.questTicks.map((tick) => [tick.key, tick])));
         setLibrary(data.library);
         setVersion(data.version);
+        setPortable(data.portable);
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setToast({ id: Date.now(), text: String(error) });
+          setToast({ id: Date.now(), text: formatError(error), duration: 10_000 });
+          setBootstrapError(formatError(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setReady(true);
+          if (isTauri()) void getCurrentWindow().show();
         }
       });
 
@@ -140,21 +167,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    document.documentElement.lang = language;
     if (i18n.language !== language) {
       void i18n.changeLanguage(language);
     }
   }, [language]);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isTauri() || !ready || portable) return;
 
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void checkForUpdate()
         .then((update) => {
-          if (cancelled || !update) return;
+          if (cancelled) {
+            if (update) void update.close();
+            return;
+          }
+          if (!update) return;
           setAvailableUpdate(update);
-          setUpdateOpen(true);
+          // Queue the prompt until all other dialogs have closed.
         })
         .catch(() => {
           // Update checks are best-effort and should never block app start.
@@ -165,7 +197,65 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
+  }, [ready, portable]);
+
+  useEffect(() => {
+    if (availableUpdate && !settingsOpen && !addGameOpen && !steamGameKey) setUpdateOpen(true);
+  }, [availableUpdate, settingsOpen, addGameOpen, steamGameKey]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    return onDummyStarted(({ key }) => setRunningKeys((current) => new Set(current).add(key)));
   }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    return onDummyError((error) =>
+      setToast({ id: Date.now(), text: formatError(error), duration: 10_000 }),
+    );
+  }, []);
+
+  useEffect(() => {
+    runningRef.current = runningKeys;
+  }, [runningKeys]);
+
+  useEffect(() => {
+    if (!isTauri() || !ready || settingsOpen || addGameOpen || steamGameKey || installingUpdate)
+      return;
+    let cancelled = false;
+    const reconcile = () => {
+      void getBootstrap()
+        .then((data) => {
+          if (cancelled) return;
+          setRunningKeys(new Set(data.runningKeys));
+          setLibrary(data.library);
+          setQuestTicks(Object.fromEntries(data.questTicks.map((tick) => [tick.key, tick])));
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("focus", reconcile);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", reconcile);
+    };
+  }, [ready, settingsOpen, addGameOpen, steamGameKey, installingUpdate]);
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (settingsOpen || addGameOpen || steamGameKey || updateOpen) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSelectedKey(null);
+        requestAnimationFrame(() => searchRef.current?.focus());
+      }
+      if (event.key === "Escape" && selectedKey && !(event.target instanceof HTMLInputElement)) {
+        setSelectedKey(null);
+        requestAnimationFrame(() => openedFrom.current?.focus());
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [settingsOpen, addGameOpen, steamGameKey, updateOpen, selectedKey]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -190,6 +280,7 @@ export default function App() {
     if (!isTauri()) return;
 
     return onQuestTick((tick) => {
+      if (!runningRef.current.has(tick.key)) return;
       const intent = pauseIntentRef.current[tick.key];
       if (intent && tick.paused !== intent.desired && Date.now() - intent.at < 2000) {
         return;
@@ -232,6 +323,7 @@ export default function App() {
           running: runningKeys.has(key),
           remaining: tick ? formatRemaining(tick.remainingSeconds) : undefined,
           phase: tick?.phase,
+          percent: tick?.percent,
           paused: tick?.paused ?? false,
         };
       })
@@ -240,7 +332,11 @@ export default function App() {
         if (filter === "active" && !game.running) return false;
         if (term && !game.name.toLowerCase().includes(term)) return false;
         return true;
-      });
+      })
+      .sort(
+        (left, right) =>
+          Number(right.isFavorite) - Number(left.isFavorite) || left.name.localeCompare(right.name),
+      );
   }, [filter, library, query, questTicks, runningKeys]);
 
   const steamGame = useMemo(() => {
@@ -259,6 +355,7 @@ export default function App() {
       running: runningKeys.has(selectedKey),
       remaining: tick ? formatRemaining(tick.remainingSeconds) : undefined,
       phase: tick?.phase,
+      percent: tick?.percent,
       paused: tick?.paused ?? false,
     };
   }, [library, questTicks, runningKeys, selectedKey]);
@@ -268,6 +365,7 @@ export default function App() {
   };
 
   const handleCheckForUpdates = async (): Promise<"available" | "current"> => {
+    if (portable) throw new Error(t("updates.portable"));
     const update = await checkForUpdate();
     if (!update) return "current";
 
@@ -275,13 +373,15 @@ export default function App() {
     setUpdateError(null);
     setUpdateProgress(undefined);
     setInstallingUpdate(false);
-    setUpdateOpen(true);
-    setSettingsOpen(false);
     return "available";
   };
 
   const handleInstallUpdate = async () => {
     if (!availableUpdate || installingUpdate) return;
+    if (runningKeys.size > 0) {
+      setUpdateError(t("updates.stopFirst"));
+      return;
+    }
 
     setInstallingUpdate(true);
     setUpdateError(null);
@@ -292,7 +392,7 @@ export default function App() {
         setUpdateProgress(progress.percent);
       });
     } catch (error: unknown) {
-      setUpdateError(error instanceof Error ? error.message : String(error));
+      setUpdateError(formatError(error));
       setInstallingUpdate(false);
     }
   };
@@ -306,11 +406,14 @@ export default function App() {
   };
 
   const openGame = (game: Game) => {
+    openedFrom.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSelectedKey(makeGameKey(game));
   };
 
   const closeGame = () => {
     setSelectedKey(null);
+    requestAnimationFrame(() => openedFrom.current?.focus());
   };
 
   const handleAddGame = async (game: DatabaseGame) => {
@@ -331,7 +434,7 @@ export default function App() {
         current.map((entry) => (makeGameKey(entry) === makeGameKey(updated) ? updated : entry)),
       );
     } catch (error: unknown) {
-      showToast(error instanceof Error ? error.message : String(error));
+      showToast(formatError(error));
     }
   };
 
@@ -359,13 +462,12 @@ export default function App() {
       } else {
         const result = await launchDummy({
           appId: game.appId,
-          name: game.name,
           exe: game.exe,
         });
         setRunningKeys((current) => new Set(current).add(result.gameKey));
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = formatError(error);
       const prefix = wasRunning ? t("notices.stopFailed") : t("notices.launchFailed");
       showToast(`${prefix} ${message}`);
     } finally {
@@ -397,7 +499,7 @@ export default function App() {
       });
     } catch (error: unknown) {
       delete pauseIntentRef.current[gameKey];
-      showToast(error instanceof Error ? error.message : String(error));
+      showToast(formatError(error));
     }
   };
 
@@ -409,7 +511,7 @@ export default function App() {
       );
       setSelectedKey(makeGameKey(updated));
     } catch (error: unknown) {
-      showToast(error instanceof Error ? error.message : String(error));
+      showToast(formatError(error));
       throw error;
     }
   };
@@ -417,15 +519,15 @@ export default function App() {
   const handleSaveSteam = async (request: SteamSetupRequest) => {
     try {
       const result = await setupSteamIntegration(request);
+      const oldKey = `${request.appId}::${request.currentExe}`;
       setLibrary((current) =>
-        current.map((entry) =>
-          makeGameKey(entry) === makeGameKey(result.updatedGame) ? result.updatedGame : entry,
-        ),
+        current.map((entry) => (makeGameKey(entry) === oldKey ? result.updatedGame : entry)),
       );
+      setSelectedKey((current) => (current === oldKey ? makeGameKey(result.updatedGame) : current));
       setSteamGameKey(null);
       showToast(t("notices.steamSaved"));
     } catch (error: unknown) {
-      showToast(error instanceof Error ? error.message : String(error));
+      showToast(formatError(error));
       throw error;
     }
   };
@@ -433,24 +535,20 @@ export default function App() {
   const handleRemoveSteam = async () => {
     if (!steamGame) return;
     try {
-      const result = await removeSteamIntegration(
-        steamGame.appId,
-        steamGame.steamAppId,
-        steamGame.installDir,
-      );
+      const result = await removeSteamIntegration(steamGame.appId, steamGame.exe);
       if (result.updatedGame) {
+        const updated = result.updatedGame;
         setLibrary((current) =>
-          current.map((entry) =>
-            makeGameKey(entry) === makeGameKey(result.updatedGame as Game)
-              ? (result.updatedGame as Game)
-              : entry,
-          ),
+          current.map((entry) => (makeGameKey(entry) === makeGameKey(steamGame) ? updated : entry)),
+        );
+        setSelectedKey((current) =>
+          current === makeGameKey(steamGame) ? makeGameKey(updated) : current,
         );
       }
       setSteamGameKey(null);
       showToast(t("notices.steamRemoved"));
     } catch (error: unknown) {
-      showToast(error instanceof Error ? error.message : String(error));
+      showToast(formatError(error));
       throw error;
     }
   };
@@ -460,7 +558,7 @@ export default function App() {
       const path = await createShortcut(game.appId, game.exe);
       showToast(t("notices.shortcutCreated", { path }));
     } catch (error: unknown) {
-      showToast(error instanceof Error ? error.message : String(error));
+      showToast(formatError(error));
     }
   };
 
@@ -470,7 +568,7 @@ export default function App() {
       setLibrary((current) => current.filter((entry) => makeGameKey(entry) !== makeGameKey(game)));
       closeGame();
     } catch (error: unknown) {
-      showToast(error instanceof Error ? error.message : String(error));
+      showToast(formatError(error));
       throw error;
     }
   };
@@ -489,19 +587,6 @@ export default function App() {
     setSettingsOpen(false);
   };
 
-  const handleDismissSettings = async () => {
-    try {
-      const saved = await saveSettings(settings);
-      setSettings(saved);
-      setSettingsOpen(false);
-      showToast(t("notices.settingsSaved"));
-    } catch (error: unknown) {
-      setSettings(settingsSnapshot);
-      setSettingsOpen(false);
-      showToast(error instanceof Error ? error.message : String(error));
-    }
-  };
-
   const handleSaveSettings = async (next: Settings) => {
     try {
       const saved = await saveSettings(next);
@@ -509,7 +594,7 @@ export default function App() {
       setSettingsOpen(false);
       showToast(t("notices.settingsSaved"));
     } catch (error: unknown) {
-      showToast(error instanceof Error ? error.message : String(error));
+      showToast(formatError(error));
     }
   };
 
@@ -527,6 +612,7 @@ export default function App() {
               <label className="search-box">
                 <Search20Regular aria-hidden="true" />
                 <input
+                  ref={searchRef}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder={t("library.searchPlaceholder")}
@@ -536,20 +622,19 @@ export default function App() {
                 <kbd className="keycap">{t("search.shortcut")}</kbd>
               </label>
 
-              <div className="filter-pills" role="tablist" aria-label={t("library.title")}>
+              <fieldset className="filter-pills" aria-label={t("library.title")}>
                 {filters.map((item) => (
                   <button
                     key={item}
                     type="button"
-                    role="tab"
-                    aria-selected={filter === item}
+                    aria-pressed={filter === item}
                     className={`filter-pill${filter === item ? " is-active" : ""}`}
                     onClick={() => setFilter(item)}
                   >
                     {t(`library.${item}`)}
                   </button>
                 ))}
-              </div>
+              </fieldset>
 
               <div className="command-bar__actions">
                 <button
@@ -558,6 +643,7 @@ export default function App() {
                   aria-label={t("settings.title")}
                   title={t("settings.title")}
                   onClick={handleOpenSettings}
+                  disabled={!ready || !!bootstrapError}
                 >
                   <Settings20Regular />
                 </button>
@@ -565,6 +651,7 @@ export default function App() {
                   type="button"
                   className="primary-button"
                   onClick={() => setAddGameOpen(true)}
+                  disabled={!ready || !!bootstrapError}
                 >
                   <Add16Filled aria-hidden="true" />
                   {t("library.addGame")}
@@ -576,13 +663,14 @@ export default function App() {
               <h1>{t("library.title")}</h1>
               <span className="library__count">{t("library.count", { count: games.length })}</span>
 
-              <fieldset className="view-toggle" aria-label="View mode">
+              <fieldset className="view-toggle" aria-label={t("library.viewMode")}>
                 <button
                   type="button"
                   className={`icon-button icon-button--small${view === "grid" ? " is-active" : ""}`}
                   onClick={() => setView("grid")}
                   aria-pressed={view === "grid"}
-                  title="Grid"
+                  title={t("library.grid")}
+                  aria-label={t("library.grid")}
                 >
                   <Grid20Regular />
                 </button>
@@ -591,19 +679,50 @@ export default function App() {
                   className={`icon-button icon-button--small${view === "list" ? " is-active" : ""}`}
                   onClick={() => setView("list")}
                   aria-pressed={view === "list"}
-                  title="List"
+                  title={t("library.list")}
+                  aria-label={t("library.list")}
                 >
                   <List20Regular />
                 </button>
               </fieldset>
             </div>
 
-            {view === "grid" ? (
+            {bootstrapError ? (
+              <section className="empty-state" role="alert">
+                <p>{bootstrapError}</p>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => location.reload()}
+                >
+                  {t("common.retry")}
+                </button>
+              </section>
+            ) : !ready ? (
+              <p role="status">{t("catalog.loading")}</p>
+            ) : games.length === 0 ? (
+              <section className="empty-state">
+                <h2>{t(library.length === 0 ? "library.emptyTitle" : "library.noMatches")}</h2>
+                <p>{t(library.length === 0 ? "library.emptyBody" : "library.noMatchesBody")}</p>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    if (library.length === 0) setAddGameOpen(true);
+                    else {
+                      setQuery("");
+                      setFilter("all");
+                    }
+                  }}
+                >
+                  {t(library.length === 0 ? "library.emptyAction" : "library.clearFilters")}
+                </button>
+              </section>
+            ) : view === "grid" ? (
               <PosterGrid
                 games={games}
                 cardsPerRow={settings.cardsPerRow}
                 canPause={settings.questTimerEnabled}
-                onAddGame={() => setAddGameOpen(true)}
                 onOpenGame={openGame}
                 onToggleFavorite={handleToggleFavorite}
                 onToggleRunning={handleToggleRunning}
@@ -611,7 +730,13 @@ export default function App() {
                 busyKey={busyKey}
               />
             ) : (
-              <GameList games={games} />
+              <GameList
+                games={games}
+                busyKey={busyKey}
+                onOpen={openGame}
+                onToggleRunning={handleToggleRunning}
+                onToggleFavorite={handleToggleFavorite}
+              />
             )}
           </div>
 
@@ -651,9 +776,10 @@ export default function App() {
           open={settingsOpen}
           settings={settings}
           version={version}
+          portable={portable}
           onPreview={handlePreviewSettings}
           onCancel={handleCancelSettings}
-          onDismiss={handleDismissSettings}
+          onDismiss={handleCancelSettings}
           onSave={handleSaveSettings}
           onCheckForUpdates={handleCheckForUpdates}
         />

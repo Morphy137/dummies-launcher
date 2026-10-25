@@ -6,7 +6,7 @@ interface CandidateState {
   failed: boolean;
 }
 
-const candidateStates = new Map<string, CandidateState>();
+const candidateStates = new Map<string, CandidateState & { at: number }>();
 
 function stateKey(candidates: string[]): string {
   return candidates.join("\n");
@@ -14,7 +14,7 @@ function stateKey(candidates: string[]): string {
 
 function initialState(key: string, candidateCount: number): CandidateState {
   const saved = candidateStates.get(key);
-  if (!saved || saved.index >= candidateCount) {
+  if (!saved || saved.index >= candidateCount || Date.now() - saved.at > 60_000) {
     return { index: 0, failed: false };
   }
   return saved;
@@ -38,7 +38,12 @@ export function useCoverCandidates(candidates: string[]) {
         current.index + 1 < candidates.length
           ? { index: current.index + 1, failed: false }
           : { index: current.index, failed: true };
-      candidateStates.set(key, next);
+      candidateStates.delete(key);
+      candidateStates.set(key, { ...next, at: Date.now() });
+      if (candidateStates.size > 256) {
+        const oldest = candidateStates.keys().next().value;
+        if (oldest) candidateStates.delete(oldest);
+      }
       return next;
     });
   };

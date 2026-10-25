@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "build:dummy": "cargo build --release --manifest-path crates/dummy-game/Cargo.toml && powershell -ExecutionPolicy Bypass -File scripts/copy-dummy.ps1",
+    "build:dummy": "cargo build --release --locked --manifest-path crates/dummy-game/Cargo.toml && powershell -ExecutionPolicy Bypass -File scripts/copy-dummy.ps1 && pnpm licenses:generate",
+    "licenses:generate": "node scripts/generate-licenses.mjs",
     "build:app": "pnpm build && pnpm build:dummy",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -25,7 +26,6 @@
     "@fluentui/react-icons": "^2.0.344",
     "@fontsource-variable/inter": "^5.3.0",
     "@tauri-apps/api": "^2.12.4",
-    "@tauri-apps/plugin-opener": "^2.7.2",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.14.0",
     "i18next": "^26.5.3",
@@ -36,9 +36,11 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@tauri-apps/cli": "2.12.4",
+    "@testing-library/react": "^16.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "jsdom": "^30.1.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"

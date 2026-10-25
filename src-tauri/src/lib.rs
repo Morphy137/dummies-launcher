@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -9,6 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
@@ -16,13 +17,23 @@ use tauri_plugin_notification::NotificationExt;
 use winreg::RegKey;
 use winreg::enums::HKEY_CURRENT_USER;
 
+#[cfg(test)]
+mod regression_tests;
+mod storage;
+
+static DATA_OPERATIONS: Mutex<()> = Mutex::new(());
+static CATALOG_SYNC: Mutex<()> = Mutex::new(());
+static UPDATING: AtomicBool = AtomicBool::new(false);
+
 const DISCORD_DETECTABLE_URL: &str = "https://discord.com/api/applications/detectable";
 
 static NEXT_TIMER_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_TEMP_FILE_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct Settings {
+    schema_version: u32,
     theme: String,
     language: String,
     show_dummy_window: bool,
@@ -33,11 +44,14 @@ struct Settings {
     quest_sync_buffer_seconds: u32,
     auto_stop_on_complete: bool,
     notify_on_complete: bool,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            schema_version: 1,
             theme: "system".to_string(),
             language: "system".to_string(),
             show_dummy_window: true,
@@ -48,6 +62,7 @@ impl Default for Settings {
             quest_sync_buffer_seconds: 60,
             auto_stop_on_complete: true,
             notify_on_complete: true,
+            extra: serde_json::Map::new(),
         }
     }
 }
@@ -60,6 +75,8 @@ struct Bootstrap {
     running_keys: Vec<String>,
     library: Vec<LibraryGame>,
     version: String,
+    portable: bool,
+    quest_ticks: Vec<QuestTick>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -76,6 +93,11 @@ struct LibraryGame {
     use_steam_path: bool,
     install_dir: Option<String>,
     steam_exe_path: Option<String>,
+    steam_library_path: Option<String>,
+    steam_previous_exe: Option<String>,
+    steam_manifest_sha256: Option<String>,
+    steam_dummy_sha256: Option<String>,
+    steam_created_install_dir: bool,
     #[serde(flatten)]
     extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -94,6 +116,11 @@ impl Default for LibraryGame {
             use_steam_path: false,
             install_dir: None,
             steam_exe_path: None,
+            steam_library_path: None,
+            steam_previous_exe: None,
+            steam_manifest_sha256: None,
+            steam_dummy_sha256: None,
+            steam_created_install_dir: false,
             extra: serde_json::Map::new(),
         }
     }
@@ -142,6 +169,17 @@ struct SteamSetupResult {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SteamSetupRequest {
+    app_id: String,
+    current_exe: String,
+    steam_app_id: String,
+    install_dir: String,
+    exe: String,
+    library_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AddGameRequest {
     id: String,
     name: String,
@@ -179,7 +217,6 @@ struct ThirdPartySku {
 #[serde(rename_all = "camelCase")]
 struct LaunchRequest {
     app_id: String,
-    name: String,
     exe: String,
 }
 
@@ -212,6 +249,15 @@ struct RunningDummy {
     name: String,
     timer_stop: Option<Arc<AtomicBool>>,
     quest_clock: Option<Arc<Mutex<QuestClock>>>,
+    last_tick: Option<Arc<Mutex<Option<QuestTick>>>>,
+}
+
+impl Drop for RunningDummy {
+    fn drop(&mut self) {
+        if let Some(stop) = &self.timer_stop {
+            stop.store(true, Ordering::SeqCst);
+        }
+    }
 }
 
 struct QuestClock {
@@ -280,14 +326,17 @@ struct AppState {
 }
 
 fn load_settings(path: &Path) -> Settings {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|content| serde_json::from_str::<Settings>(&content).ok())
-        .map(normalize_settings)
-        .unwrap_or_default()
+    match storage::read_json::<Settings>(path) {
+        Ok(settings) => normalize_settings(settings),
+        Err(error) => {
+            log::error!("{error}");
+            Settings::default()
+        }
+    }
 }
 
 fn normalize_settings(mut settings: Settings) -> Settings {
+    settings.schema_version = 1;
     if !matches!(settings.theme.as_str(), "dark" | "light") {
         settings.theme = "system".to_string();
     }
@@ -307,10 +356,7 @@ fn normalize_settings(mut settings: Settings) -> Settings {
 }
 
 fn write_settings(path: &Path, settings: &Settings) -> Result<(), String> {
-    let json = serde_json::to_vec_pretty(settings).map_err(|error| error.to_string())?;
-    let temporary = path.with_extension("json.tmp");
-    fs::write(&temporary, json).map_err(|error| error.to_string())?;
-    fs::rename(&temporary, path).map_err(|error| error.to_string())
+    storage::write_json(path, settings)
 }
 
 fn fallback_exe_name(name: &str) -> String {
@@ -420,6 +466,7 @@ fn fetch_gamelist(path: &Path) -> Result<bool, String> {
 
     let text = response.text().map_err(|error| error.to_string())?;
     let remote = text.trim();
+    validate_catalog(remote)?;
     let local = fs::read_to_string(path)
         .ok()
         .map(|content| content.trim().to_string());
@@ -428,28 +475,53 @@ fn fetch_gamelist(path: &Path) -> Result<bool, String> {
         return Ok(false);
     }
 
-    if local.is_some() {
-        let _ = fs::copy(path, path.with_extension("json.bak"));
-    }
-
-    let temporary = path.with_extension("json.tmp");
-    fs::write(&temporary, format!("{remote}\n")).map_err(|error| error.to_string())?;
-    fs::rename(&temporary, path).map_err(|error| error.to_string())?;
+    storage::write_atomic(path, format!("{remote}\n").as_bytes(), true)?;
     Ok(true)
 }
 
-fn load_library(path: &Path) -> Vec<LibraryGame> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Vec<LibraryGame>>(&raw).ok())
-        .unwrap_or_default()
+fn validate_catalog(raw: &str) -> Result<(), String> {
+    let apps: Vec<DetectableApp> = serde_json::from_str(raw).map_err(|error| error.to_string())?;
+    if apps.is_empty()
+        || apps.iter().any(|app| {
+            app.id.as_deref().is_none_or(str::is_empty)
+                || app.name.as_deref().is_none_or(str::is_empty)
+        })
+    {
+        return Err(
+            "The downloaded catalog is incomplete; the cached catalog was preserved".into(),
+        );
+    }
+    Ok(())
+}
+
+fn load_library(path: &Path) -> Result<Vec<LibraryGame>, String> {
+    let library: Vec<LibraryGame> = storage::read_json(path)?;
+    validate_library(&library)?;
+    Ok(library)
+}
+
+fn validate_library(library: &[LibraryGame]) -> Result<(), String> {
+    let mut keys = std::collections::HashSet::new();
+    for game in library {
+        let exe = sanitize_relative_exe(&game.exe)
+            .ok_or_else(|| "Invalid executable in library; restore its .bak file".to_string())?;
+        if !safe_path_component(&game.app_id)
+            || game.name.trim().is_empty()
+            || !keys.insert(format!(
+                "{}::{}",
+                game.app_id.to_lowercase(),
+                exe.to_string_lossy().to_lowercase()
+            ))
+        {
+            return Err("Invalid or duplicate library entry; restore its .bak file".into());
+        }
+    }
+    Ok(())
 }
 
 fn write_library(path: &Path, library: &[LibraryGame]) -> Result<(), String> {
-    let json = serde_json::to_vec_pretty(library).map_err(|error| error.to_string())?;
-    let temporary = path.with_extension("json.tmp");
-    fs::write(&temporary, json).map_err(|error| error.to_string())?;
-    fs::rename(&temporary, path).map_err(|error| error.to_string())
+    validate_library(library)?;
+    storage::write_json(path, library)
 }
 
 fn enrich_library(library: &mut [LibraryGame], database: &[DatabaseGame]) -> bool {
@@ -532,6 +604,10 @@ fn migrate_legacy_data(paths: &AppPaths) {
         return;
     };
     let base = PathBuf::from(appdata);
+    migrate_legacy_from(&base, paths);
+}
+
+fn migrate_legacy_from(base: &Path, paths: &AppPaths) {
     let candidates = [
         "discord-fake-game-launcher-ui",
         "Discord Fake Game Launcher",
@@ -550,20 +626,30 @@ fn migrate_legacy_data(paths: &AppPaths) {
             ("settings.json", &paths.settings_path),
             ("gamelist.json", &paths.gamelist_path),
         ];
-        let mut copied = false;
 
         for (name, destination) in files {
             if destination.exists() {
                 continue;
             }
             let source = directory.join(name);
-            if source.is_file() && fs::copy(&source, destination).is_ok() {
-                copied = true;
+            if source.is_file() {
+                match fs::read(&source) {
+                    Ok(bytes) if serde_json::from_slice::<serde_json::Value>(&bytes).is_ok() => {
+                        if let Err(error) = storage::write_atomic(destination, &bytes, false)
+                            .and_then(|_| {
+                                storage::write_atomic(
+                                    &destination.with_extension("json.bak"),
+                                    &bytes,
+                                    false,
+                                )
+                            })
+                        {
+                            log::error!("Migration failed: {error}");
+                        }
+                    }
+                    _ => log::warn!("Skipping unreadable legacy file: {}", source.display()),
+                }
             }
-        }
-
-        if copied {
-            break;
         }
     }
 }
@@ -615,16 +701,16 @@ fn sanitize_component(value: &str) -> Option<String> {
 
 fn sanitize_relative_exe(value: &str) -> Option<PathBuf> {
     let normalized = value.replace('\\', "/");
+    if normalized.starts_with('/') || normalized.contains(':') {
+        return None;
+    }
     let mut path = PathBuf::new();
 
     for component in normalized.split('/') {
-        if component.is_empty() || component == "." {
-            continue;
-        }
-        if component == ".." {
+        if !safe_path_component(component) {
             return None;
         }
-        path.push(sanitize_component(component)?);
+        path.push(component);
     }
 
     if path.as_os_str().is_empty() {
@@ -632,6 +718,26 @@ fn sanitize_relative_exe(value: &str) -> Option<PathBuf> {
     } else {
         Some(path)
     }
+}
+
+fn safe_path_component(value: &str) -> bool {
+    let stem = value
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && value.len() <= 240
+        && !value.ends_with(['.', ' '])
+        && !value
+            .chars()
+            .any(|c| c.is_control() || "<>:\"/\\|?*".contains(c))
+        && !matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        && !(stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'))
 }
 
 fn find_dummy_source(app: &AppHandle) -> Option<PathBuf> {
@@ -676,7 +782,10 @@ fn prepare_dummy(
     app_id: &str,
     exe: &str,
 ) -> Result<(PathBuf, PathBuf), String> {
-    let app_folder = sanitize_component(app_id).ok_or_else(|| "Invalid app id".to_string())?;
+    if !safe_path_component(app_id) {
+        return Err("Invalid app id".into());
+    }
+    let app_folder = app_id;
     let exe_relative =
         sanitize_relative_exe(exe).ok_or_else(|| "Invalid executable path".to_string())?;
     let exe_name = exe_relative
@@ -686,15 +795,16 @@ fn prepare_dummy(
     let working_dir = paths.games_dir.join(app_folder).join(exe_parent);
     let destination = working_dir.join(exe_name);
 
+    reject_redirects(&working_dir)?;
     fs::create_dir_all(&working_dir).map_err(|error| error.to_string())?;
 
-    let should_copy = match (fs::metadata(source), fs::metadata(&destination)) {
-        (Ok(source_meta), Ok(destination_meta)) => source_meta.len() != destination_meta.len(),
-        _ => true,
-    };
-
-    if should_copy {
-        fs::copy(source, &destination).map_err(|error| error.to_string())?;
+    ensure_existing_within(&paths.games_dir, &working_dir)?;
+    let bytes = fs::read(source).map_err(|error| error.to_string())?;
+    if destination.exists() {
+        ensure_existing_within(&working_dir, &destination)?;
+    }
+    if fs::read(&destination).ok().as_deref() != Some(bytes.as_slice()) {
+        storage::write_atomic(&destination, &bytes, false)?;
     }
 
     Ok((destination, working_dir))
@@ -747,6 +857,13 @@ struct QuestTimerConfig {
     buffer_seconds: u32,
     auto_stop: bool,
     notify: bool,
+    spanish: bool,
+}
+
+struct QuestTimerHandles {
+    stop: Arc<AtomicBool>,
+    clock: Arc<Mutex<QuestClock>>,
+    last_tick: Arc<Mutex<Option<QuestTick>>>,
 }
 
 fn start_quest_timer(
@@ -755,11 +872,13 @@ fn start_quest_timer(
     name: String,
     timer_id: u64,
     config: QuestTimerConfig,
-) -> (Arc<AtomicBool>, Arc<Mutex<QuestClock>>) {
+) -> QuestTimerHandles {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_signal = stop.clone();
     let clock = Arc::new(Mutex::new(QuestClock::new()));
     let clock_signal = clock.clone();
+    let last_tick = Arc::new(Mutex::new(None));
+    let tick_signal = last_tick.clone();
 
     thread::spawn(move || {
         let target = u64::from(config.target_minutes) * 60;
@@ -787,36 +906,70 @@ fn start_quest_timer(
             };
             let percent = (elapsed.min(total) * 100).checked_div(total).unwrap_or(100) as u8;
 
-            let _ = app.emit(
-                "quest://tick",
-                QuestTick {
-                    key: key.clone(),
-                    name: name.clone(),
-                    timer_id,
-                    remaining_seconds: remaining,
-                    phase: phase.to_string(),
-                    percent,
-                    paused,
-                },
-            );
+            let state = app.state::<AppState>();
+            let active = state
+                .running
+                .lock()
+                .map(|running| {
+                    running
+                        .get(&key)
+                        .and_then(|dummy| dummy.quest_clock.as_ref())
+                        .is_some_and(|current| Arc::ptr_eq(current, &clock_signal))
+                })
+                .unwrap_or(false);
+            if stop_signal.load(Ordering::SeqCst) {
+                break;
+            }
+            if !active {
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+
+            let tick = QuestTick {
+                key: key.clone(),
+                name: name.clone(),
+                timer_id,
+                remaining_seconds: remaining,
+                phase: phase.to_string(),
+                percent,
+                paused,
+            };
+            if let Ok(mut current) = tick_signal.lock() {
+                *current = Some(tick.clone());
+            }
+            let _ = app.emit("quest://tick", tick);
 
             if phase == "complete" {
                 if config.notify {
                     let _ = app
                         .notification()
                         .builder()
-                        .title("Quest complete")
-                        .body(format!("{name} reached the quest goal."))
+                        .title(if config.spanish {
+                            "Temporizador completado"
+                        } else {
+                            "Timer complete"
+                        })
+                        .body(if config.spanish {
+                            format!("{name} alcanzó el tiempo objetivo local.")
+                        } else {
+                            format!("{name} reached the local timer goal.")
+                        })
                         .show();
                 }
 
                 if config.auto_stop {
                     let state = app.state::<AppState>();
-                    let dummy = state
-                        .running
-                        .lock()
-                        .ok()
-                        .and_then(|mut running| running.remove(&key));
+                    let dummy = state.running.lock().ok().and_then(|mut running| {
+                        if running
+                            .get(&key)
+                            .and_then(|dummy| dummy.quest_clock.as_ref())
+                            .is_some_and(|current| Arc::ptr_eq(current, &clock_signal))
+                        {
+                            running.remove(&key)
+                        } else {
+                            None
+                        }
+                    });
                     if let Some(dummy) = dummy {
                         stop_running_dummy(dummy);
                         let _ = app.emit(
@@ -837,7 +990,11 @@ fn start_quest_timer(
         }
     });
 
-    (stop, clock)
+    QuestTimerHandles {
+        stop,
+        clock,
+        last_tick,
+    }
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -862,7 +1019,13 @@ fn update_tray_menu(app: &AppHandle, state: &AppState) {
         return;
     };
 
-    let entries: Vec<(String, String)> = {
+    let spanish = state
+        .settings
+        .lock()
+        .map(|settings| is_spanish(&settings))
+        .unwrap_or(false);
+    let text = |en, es| if spanish { es } else { en };
+    let mut entries: Vec<(String, String)> = {
         let Ok(running) = state.running.lock() else {
             return;
         };
@@ -871,15 +1034,28 @@ fn update_tray_menu(app: &AppHandle, state: &AppState) {
             .map(|(key, dummy)| (key.clone(), dummy.name.clone()))
             .collect()
     };
+    entries.sort_by_key(|(_, name)| name.to_lowercase());
 
     let build = || -> tauri::Result<()> {
         let menu = Menu::new(app)?;
-        let open = MenuItem::with_id(app, "open", "Open Dummies", true, None::<&str>)?;
+        let open = MenuItem::with_id(
+            app,
+            "open",
+            text("Open Dummies", "Abrir Dummies"),
+            true,
+            None::<&str>,
+        )?;
         menu.append(&open)?;
         menu.append(&PredefinedMenuItem::separator(app)?)?;
 
         if entries.is_empty() {
-            let empty = MenuItem::with_id(app, "empty", "No games running", false, None::<&str>)?;
+            let empty = MenuItem::with_id(
+                app,
+                "empty",
+                text("No games running", "No hay dummies activos"),
+                false,
+                None::<&str>,
+            )?;
             menu.append(&empty)?;
         } else {
             for (key, name) in &entries {
@@ -887,19 +1063,24 @@ fn update_tray_menu(app: &AppHandle, state: &AppState) {
                 let show = MenuItem::with_id(
                     app,
                     format!("show:{key}"),
-                    "Show window",
+                    text("Show / restore window", "Mostrar / restaurar ventana"),
                     true,
                     None::<&str>,
                 )?;
                 let hide = MenuItem::with_id(
                     app,
                     format!("hide:{key}"),
-                    "Hide window",
+                    text("Hide window", "Ocultar ventana"),
                     true,
                     None::<&str>,
                 )?;
-                let stop =
-                    MenuItem::with_id(app, format!("stop:{key}"), "Stop game", true, None::<&str>)?;
+                let stop = MenuItem::with_id(
+                    app,
+                    format!("stop:{key}"),
+                    text("Stop game", "Detener dummy"),
+                    true,
+                    None::<&str>,
+                )?;
                 submenu.append(&show)?;
                 submenu.append(&hide)?;
                 submenu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -912,26 +1093,33 @@ fn update_tray_menu(app: &AppHandle, state: &AppState) {
         let stop_all = MenuItem::with_id(
             app,
             "stop_all",
-            "Stop all games",
+            text("Stop all games", "Detener todos"),
             !entries.is_empty(),
             None::<&str>,
         )?;
         menu.append(&stop_all)?;
         menu.append(&PredefinedMenuItem::separator(app)?)?;
-        let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+        let quit = MenuItem::with_id(app, "quit", text("Quit", "Salir"), true, None::<&str>)?;
         menu.append(&quit)?;
 
         tray.set_menu(Some(menu))?;
         let tooltip = if entries.is_empty() {
             "Dummies".to_string()
         } else {
-            format!("Dummies — {} running", entries.len())
+            format!("Dummies — {} {}", entries.len(), text("running", "activos"))
         };
         tray.set_tooltip(Some(tooltip))?;
         Ok(())
     };
 
-    let _ = build();
+    if let Err(error) = build() {
+        log::error!("Tray menu: {error}");
+    }
+}
+
+fn is_spanish(settings: &Settings) -> bool {
+    settings.language == "es"
+        || (settings.language == "system" && get_system_locale().to_lowercase().starts_with("es"))
 }
 
 fn handle_tray_menu(app: &AppHandle, id: &str) {
@@ -1010,7 +1198,11 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
 fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let mut builder = TrayIconBuilder::with_id("main")
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| handle_tray_menu(app, event.id().as_ref()))
+        .on_menu_event(|app, event| {
+            let app = app.clone();
+            let id = event.id().as_ref().to_string();
+            thread::spawn(move || handle_tray_menu(&app, &id));
+        })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
@@ -1094,11 +1286,17 @@ fn get_settings(state: State<AppState>) -> Result<Settings, String> {
         .map_err(|error| error.to_string())
 }
 
-#[tauri::command]
-fn save_settings(state: State<AppState>, settings: Settings) -> Result<Settings, String> {
+#[tauri::command(async)]
+fn save_settings(
+    app: AppHandle,
+    state: State<AppState>,
+    settings: Settings,
+) -> Result<Settings, String> {
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
     let normalized = normalize_settings(settings);
     write_settings(&state.paths.settings_path, &normalized)?;
     *state.settings.lock().map_err(|error| error.to_string())? = normalized.clone();
+    update_tray_menu(&app, state.inner());
     Ok(normalized)
 }
 
@@ -1107,18 +1305,20 @@ fn get_system_locale() -> String {
     sys_locale::get_locale().unwrap_or_else(|| "en".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_bootstrap(state: State<AppState>) -> Result<Bootstrap, String> {
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
+    let _: Settings = storage::read_json(&state.paths.settings_path)?;
     let settings = state
         .settings
         .lock()
         .map_err(|error| error.to_string())?
         .clone();
-    let mut library = load_library(&state.paths.my_games_path);
+    let mut library = load_library(&state.paths.my_games_path)?;
     {
         let database = state.database.read().map_err(|error| error.to_string())?;
         if enrich_library(&mut library, &database) {
-            let _ = write_library(&state.paths.my_games_path, &library);
+            write_library(&state.paths.my_games_path, &library)?;
         }
     }
 
@@ -1128,16 +1328,28 @@ fn get_bootstrap(state: State<AppState>) -> Result<Bootstrap, String> {
         running_keys: running_keys(&state)?,
         library,
         version: env!("CARGO_PKG_VERSION").to_string(),
+        quest_ticks: state
+            .running
+            .lock()
+            .map_err(|error| error.to_string())?
+            .values()
+            .filter_map(|dummy| dummy.last_tick.as_ref()?.lock().ok()?.clone())
+            .collect(),
+        portable: std::env::current_exe()
+            .ok()
+            .and_then(|path| {
+                path.parent()
+                    .map(|dir| dir.join("portable.marker").is_file())
+            })
+            .unwrap_or(false),
     })
 }
 
-#[tauri::command]
-async fn sync_gamelist(state: State<'_, AppState>) -> Result<SyncResult, String> {
+#[tauri::command(async)]
+fn sync_gamelist(state: State<'_, AppState>) -> Result<SyncResult, String> {
+    let _guard = CATALOG_SYNC.lock().map_err(|error| error.to_string())?;
     let path = state.paths.gamelist_path.clone();
-    let fetch_path = path.clone();
-    let updated = tauri::async_runtime::spawn_blocking(move || fetch_gamelist(&fetch_path))
-        .await
-        .map_err(|error| error.to_string())??;
+    let updated = fetch_gamelist(&path)?;
     let database = load_database(&path);
     let count = database.len();
     *state.database.write().map_err(|error| error.to_string())? = database;
@@ -1149,7 +1361,7 @@ async fn sync_gamelist(state: State<'_, AppState>) -> Result<SyncResult, String>
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_database_page(
     state: State<AppState>,
     filter: String,
@@ -1160,20 +1372,22 @@ fn get_database_page(
     Ok(page_database(&database, &filter, offset, limit))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_library(state: State<AppState>) -> Result<Vec<LibraryGame>, String> {
-    let mut library = load_library(&state.paths.my_games_path);
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
+    let mut library = load_library(&state.paths.my_games_path)?;
     {
         let database = state.database.read().map_err(|error| error.to_string())?;
         if enrich_library(&mut library, &database) {
-            let _ = write_library(&state.paths.my_games_path, &library);
+            write_library(&state.paths.my_games_path, &library)?;
         }
     }
     Ok(library)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn add_game(state: State<AppState>, request: AddGameRequest) -> Result<LibraryGame, String> {
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
     let name = request.name.trim().to_string();
     if name.is_empty() {
         return Err("Game name is required".to_string());
@@ -1191,7 +1405,7 @@ fn add_game(state: State<AppState>, request: AddGameRequest) -> Result<LibraryGa
     let steam_app_id = request.steam_app_id.filter(|id| !id.trim().is_empty());
     let requires_steam = request.uses_new_detection && steam_app_id.is_some();
 
-    let mut library = load_library(&state.paths.my_games_path);
+    let mut library = load_library(&state.paths.my_games_path)?;
     if let Some(existing) = library
         .iter()
         .find(|game| game.app_id == app_id && game.exe == exe)
@@ -1216,44 +1430,51 @@ fn add_game(state: State<AppState>, request: AddGameRequest) -> Result<LibraryGa
     Ok(entry)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn remove_game(state: State<AppState>, app_id: String, exe: String) -> Result<bool, String> {
-    let mut library = load_library(&state.paths.my_games_path);
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
+    let mut library = load_library(&state.paths.my_games_path)?;
     let candidate = library
         .iter()
         .find(|game| game.app_id == app_id && game.exe == exe)
         .cloned();
+    if let Some(game) = candidate.as_ref() {
+        let running_key = format!("{}::{}", game.app_id, game.exe);
+        if state
+            .running
+            .lock()
+            .map_err(|error| error.to_string())?
+            .contains_key(&running_key)
+        {
+            return Err("Stop the game before removing it from the library".to_string());
+        }
+        if game.use_steam_path {
+            return Err(
+                "Remove the Steam integration before removing this game from the library"
+                    .to_string(),
+            );
+        }
+    }
+
     let before = library.len();
     library.retain(|game| !(game.app_id == app_id && game.exe == exe));
     let removed = library.len() != before;
 
     if removed {
-        if let Some(game) = candidate
-            && game.use_steam_path
-            && let Some(steam_path) = find_steam_path()
-        {
-            let steam_apps = steam_path.join("steamapps");
-            if let Some(steam_app_id) = game.steam_app_id.as_deref() {
-                let _ = fs::remove_file(steam_apps.join(format!("appmanifest_{steam_app_id}.acf")));
-            }
-            if let Some(install_dir) = game.install_dir.as_deref() {
-                let _ = fs::remove_dir_all(steam_apps.join("common").join(install_dir));
-            }
-        }
-
         write_library(&state.paths.my_games_path, &library)?;
     }
 
     Ok(removed)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn toggle_favorite(
     state: State<AppState>,
     app_id: String,
     exe: String,
 ) -> Result<LibraryGame, String> {
-    let mut library = load_library(&state.paths.my_games_path);
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
+    let mut library = load_library(&state.paths.my_games_path)?;
     let game = library
         .iter_mut()
         .find(|game| game.app_id == app_id && game.exe == exe)
@@ -1264,13 +1485,14 @@ fn toggle_favorite(
     Ok(updated)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn update_game_executable(
     state: State<AppState>,
     app_id: String,
     old_exe: String,
     new_exe: String,
 ) -> Result<LibraryGame, String> {
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
     let running_key = format!("{app_id}::{old_exe}");
     if state
         .running
@@ -1292,13 +1514,26 @@ fn update_game_executable(
     }
     let new_exe = path.to_string_lossy().to_string();
 
-    let mut library = load_library(&state.paths.my_games_path);
-    let game = library
-        .iter_mut()
-        .find(|game| game.app_id == app_id && game.exe == old_exe)
+    let mut library = load_library(&state.paths.my_games_path)?;
+    let index = library
+        .iter()
+        .position(|game| game.app_id == app_id && game.exe == old_exe)
         .ok_or_else(|| "Game not found in library".to_string())?;
-    game.exe = new_exe;
-    let updated = game.clone();
+    if library[index].use_steam_path {
+        return Err("Remove the Steam integration before changing the game executable".to_string());
+    }
+    if new_exe == old_exe {
+        return Ok(library[index].clone());
+    }
+    if library
+        .iter()
+        .any(|game| game.app_id == app_id && game.exe.eq_ignore_ascii_case(&new_exe))
+    {
+        return Err("Another library entry already uses that executable".to_string());
+    }
+
+    library[index].exe = new_exe;
+    let updated = library[index].clone();
     write_library(&state.paths.my_games_path, &library)?;
     Ok(updated)
 }
@@ -1327,68 +1562,466 @@ fn get_steam_path() -> Option<String> {
     find_steam_path().map(|path| path.to_string_lossy().to_string())
 }
 
-#[tauri::command]
-fn setup_steam_integration(
-    app: AppHandle,
-    state: State<AppState>,
-    app_id: String,
-    steam_app_id: String,
+fn vdf_strings(raw: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut chars = raw.chars();
+    while let Some(character) = chars.next() {
+        if character != '"' {
+            continue;
+        }
+        let mut token = String::new();
+        while let Some(character) = chars.next() {
+            match character {
+                '"' => break,
+                '\\' => {
+                    if let Some(escaped) = chars.next() {
+                        token.push(escaped);
+                    }
+                }
+                _ => token.push(character),
+            }
+        }
+        tokens.push(token);
+    }
+    tokens
+}
+
+fn steam_libraries() -> Vec<PathBuf> {
+    let Some(primary) = find_steam_path() else {
+        return Vec::new();
+    };
+    let mut paths = vec![primary.clone()];
+    if let Ok(raw) = fs::read_to_string(primary.join("steamapps/libraryfolders.vdf")) {
+        let tokens = vdf_strings(&raw);
+        for pair in tokens.windows(2) {
+            if pair[0] == "path" {
+                let path = PathBuf::from(&pair[1]);
+                if path.is_absolute() && path.is_dir() && !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+    paths
+}
+
+#[tauri::command(async)]
+fn get_steam_libraries() -> Vec<String> {
+    steam_libraries()
+        .iter()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect()
+}
+
+fn checked_steam_library(requested: Option<&str>) -> Result<PathBuf, String> {
+    let paths = steam_libraries();
+    let path = if let Some(requested) = requested {
+        let requested = fs::canonicalize(requested).map_err(|error| error.to_string())?;
+        paths
+            .into_iter()
+            .find(|path| fs::canonicalize(path).ok().as_ref() == Some(&requested))
+    } else {
+        paths.into_iter().next()
+    };
+    let path =
+        path.ok_or_else(|| "Steam library was not found in Steam configuration".to_string())?;
+    reject_redirects(&path)?;
+    Ok(path)
+}
+
+#[derive(Clone, Debug)]
+struct SteamLayout {
+    steam_id: String,
     install_dir: String,
-    exe: String,
-) -> Result<SteamSetupResult, String> {
+    exe_relative: PathBuf,
+    steam_apps: PathBuf,
+    common: PathBuf,
+    manifest_path: PathBuf,
+    install_root: PathBuf,
+    destination: PathBuf,
+}
+
+fn steam_layout(
+    steam_path: &Path,
+    steam_app_id: &str,
+    install_dir: &str,
+    exe: &str,
+) -> Result<SteamLayout, String> {
     let steam_id = steam_app_id.trim().to_string();
     if steam_id.is_empty() || !steam_id.chars().all(|character| character.is_ascii_digit()) {
         return Err("A numeric Steam App ID is required".to_string());
     }
 
-    let install =
-        sanitize_component(&install_dir).ok_or_else(|| "Invalid install folder".to_string())?;
-    let exe_relative =
-        sanitize_relative_exe(&exe).ok_or_else(|| "Invalid executable path".to_string())?;
+    if !safe_path_component(install_dir) {
+        return Err("Invalid install folder".into());
+    }
+    let install = install_dir.to_string();
+    let mut exe_relative =
+        sanitize_relative_exe(exe).ok_or_else(|| "Invalid executable path".to_string())?;
+    if exe_relative
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_none_or(|extension| !extension.eq_ignore_ascii_case("exe"))
+    {
+        exe_relative.set_extension("exe");
+    }
+
     let exe_name = exe_relative
         .file_name()
         .ok_or_else(|| "Invalid executable name".to_string())?;
     let exe_parent = exe_relative.parent().unwrap_or_else(|| Path::new(""));
-    let steam_path = find_steam_path()
-        .ok_or_else(|| "Steam installation path could not be found".to_string())?;
+    let steam_apps = steam_path.join("steamapps");
+    let common = steam_apps.join("common");
+    let install_root = common.join(&install);
+    let destination = install_root.join(exe_parent).join(exe_name);
+
+    Ok(SteamLayout {
+        steam_id: steam_id.clone(),
+        install_dir: install,
+        exe_relative,
+        manifest_path: steam_apps.join(format!("appmanifest_{steam_id}.acf")),
+        steam_apps,
+        common,
+        install_root,
+        destination,
+    })
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn steam_manifest(game_name: &str, steam_id: &str, install_dir: &str) -> String {
+    let escaped_name: String = game_name
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    format!(
+        "\"AppState\"\n{{\n    \"appid\" \"{steam_id}\"\n    \"name\" \"{escaped_name}\"\n    \"installdir\" \"{install_dir}\"\n}}\n"
+    )
+}
+
+fn reject_redirects(path: &Path) -> Result<(), String> {
+    // Refuse junctions and symlinks, even when their target is currently inside base.
+    let mut current = Some(path);
+    while let Some(part) = current {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            match fs::symlink_metadata(part) {
+                Ok(metadata) if metadata.file_attributes() & 0x400 != 0 => {
+                    return Err("Refusing a redirected filesystem path".into());
+                }
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.to_string());
+                }
+                _ => {}
+            }
+        }
+        current = part.parent();
+    }
+    Ok(())
+}
+
+fn ensure_existing_within(base: &Path, path: &Path) -> Result<(), String> {
+    reject_redirects(path)?;
+    let canonical_base = fs::canonicalize(base).map_err(|error| error.to_string())?;
+    let canonical_path = fs::canonicalize(path).map_err(|error| error.to_string())?;
+    if canonical_path.starts_with(canonical_base) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Refusing to access a path outside the expected folder: {}",
+            path.display()
+        ))
+    }
+}
+
+fn read_owned_artifact(
+    base: &Path,
+    path: &Path,
+    expected_sha256: Option<&str>,
+) -> Result<Option<Vec<u8>>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    ensure_existing_within(base, path)?;
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let owned = if let Some(expected) = expected_sha256 {
+        sha256_hex(&bytes) == expected
+    } else {
+        false
+    };
+
+    if !owned {
+        return Err(format!(
+            "Dummies cannot verify ownership of {}. The file was left unchanged.",
+            path.display()
+        ));
+    }
+
+    Ok(Some(bytes))
+}
+
+fn write_new_artifact(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    let result = (|| -> Result<(), String> {
+        file.write_all(bytes).map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())
+    })();
+    drop(file);
+    if result.is_err() {
+        let _ = fs::remove_file(path);
+    }
+    result
+}
+
+fn write_artifact(path: &Path, bytes: &[u8], allow_replace: bool) -> Result<(), String> {
+    if !path.exists() {
+        return write_new_artifact(path, bytes);
+    }
+    if !allow_replace {
+        return Err(format!(
+            "Refusing to overwrite an existing file: {}",
+            path.display()
+        ));
+    }
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Artifact path has no parent".to_string())?;
+    let temporary = parent.join(format!(
+        ".dummies-{}-{}.tmp",
+        std::process::id(),
+        NEXT_TEMP_FILE_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    write_new_artifact(&temporary, bytes)?;
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+fn restore_artifact(path: &Path, previous: Option<&[u8]>, written: Option<&[u8]>) {
+    let result = (|| -> Result<(), String> {
+        if let Some(written) = written {
+            if fs::read(path).map_err(|error| error.to_string())? != written {
+                return Err("File changed externally during rollback; preserving it".into());
+            }
+        } else if path.exists() {
+            return Err("A new file appeared during rollback; preserving it".into());
+        }
+        if let Some(bytes) = previous {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            }
+            write_artifact(path, bytes, written.is_some())?;
+        } else if written.is_some() {
+            fs::remove_file(path).map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        log::error!(
+            "Rollback requires manual inspection of {}: {error}",
+            path.display()
+        );
+    }
+}
+
+fn remove_empty_steam_directories(layout: &SteamLayout) -> bool {
+    let mut current = layout.destination.parent();
+    while let Some(directory) = current {
+        if directory == layout.install_root {
+            break;
+        }
+        if fs::remove_dir(directory).is_err() {
+            return false;
+        }
+        current = directory.parent();
+    }
+
+    fs::remove_dir(&layout.install_root).is_ok()
+}
+
+fn setup_steam_at(
+    state: &AppState,
+    source: &Path,
+    steam_path: &Path,
+    request: &SteamSetupRequest,
+) -> Result<SteamSetupResult, String> {
+    let app_id = request.app_id.as_str();
+    let current_exe = request.current_exe.as_str();
+    let steam_app_id = request.steam_app_id.as_str();
+    let install_dir = request.install_dir.as_str();
+    let exe = request.exe.as_str();
+    let layout = steam_layout(steam_path, steam_app_id, install_dir, exe)?;
+    reject_redirects(&layout.destination)?;
+    reject_redirects(&layout.manifest_path)?;
+    let new_exe = layout.exe_relative.to_string_lossy().to_string();
+    let running_key = format!("{app_id}::{current_exe}");
+    if state
+        .running
+        .lock()
+        .map_err(|error| error.to_string())?
+        .contains_key(&running_key)
+    {
+        return Err("Stop the game before changing its Steam integration".to_string());
+    }
+
+    let mut library = load_library(&state.paths.my_games_path)?;
+    let index = library
+        .iter()
+        .position(|game| game.app_id == app_id && game.exe == current_exe)
+        .ok_or_else(|| "Game not found in library".to_string())?;
+    let original = library[index].clone();
+    let updating = original.use_steam_path;
+    if library.iter().enumerate().any(|(other, game)| {
+        other != index && game.app_id == app_id && game.exe.eq_ignore_ascii_case(&new_exe)
+    }) {
+        return Err("Another library entry already uses that executable".into());
+    }
+
+    if updating
+        && (original.steam_app_id.as_deref() != Some(layout.steam_id.as_str())
+            || original.install_dir.as_deref() != Some(layout.install_dir.as_str())
+            || original.exe != new_exe)
+    {
+        return Err(
+            "Remove the Steam integration before changing its App ID, folder, or executable"
+                .to_string(),
+        );
+    }
+
+    let source_bytes = fs::read(source).map_err(|error| error.to_string())?;
+    let manifest = steam_manifest(&original.name, &layout.steam_id, &layout.install_dir);
+    let mut old_manifest = None;
+    let mut old_dummy = None;
+
+    if updating {
+        if !layout.install_root.is_dir() {
+            return Err("The configured Steam install folder no longer exists".to_string());
+        }
+        ensure_existing_within(&layout.common, &layout.install_root)?;
+        old_manifest = read_owned_artifact(
+            &layout.steam_apps,
+            &layout.manifest_path,
+            original.steam_manifest_sha256.as_deref(),
+        )?;
+        old_dummy = read_owned_artifact(
+            &layout.install_root,
+            &layout.destination,
+            original.steam_dummy_sha256.as_deref(),
+        )?;
+    } else {
+        fs::create_dir_all(&layout.common).map_err(|error| error.to_string())?;
+        if layout.manifest_path.exists() {
+            return Err(format!(
+                "A Steam manifest already exists at {}. Choose another App ID or remove it manually.",
+                layout.manifest_path.display()
+            ));
+        }
+        if layout.install_root.exists() {
+            return Err(format!(
+                "The Steam install folder already exists at {}. Choose a new, dedicated folder.",
+                layout.install_root.display()
+            ));
+        }
+        fs::create_dir(&layout.install_root).map_err(|error| error.to_string())?;
+    }
+
+    let manifest_bytes = manifest.into_bytes();
+    let mut wrote_manifest = false;
+    let mut wrote_dummy = false;
+    let write_result = (|| -> Result<(), String> {
+        let target_dir = layout
+            .destination
+            .parent()
+            .ok_or_else(|| "Invalid executable destination".to_string())?;
+        fs::create_dir_all(target_dir).map_err(|error| error.to_string())?;
+        ensure_existing_within(steam_path, target_dir)?;
+        write_artifact(&layout.manifest_path, &manifest_bytes, updating)?;
+        wrote_manifest = true;
+        write_artifact(&layout.destination, &source_bytes, updating)?;
+        wrote_dummy = true;
+
+        let game = &mut library[index];
+        game.use_steam_path = true;
+        game.steam_app_id = Some(layout.steam_id.clone());
+        game.install_dir = Some(layout.install_dir.clone());
+        game.exe = new_exe.clone();
+        game.steam_exe_path = Some(layout.destination.to_string_lossy().to_string());
+        game.steam_library_path = Some(steam_path.to_string_lossy().to_string());
+        game.steam_previous_exe = if updating {
+            original.steam_previous_exe.clone()
+        } else {
+            Some(original.exe.clone())
+        };
+        game.steam_manifest_sha256 = Some(sha256_hex(&manifest_bytes));
+        game.steam_dummy_sha256 = Some(sha256_hex(&source_bytes));
+        game.steam_created_install_dir = if updating {
+            original.steam_created_install_dir
+        } else {
+            true
+        };
+        write_library(&state.paths.my_games_path, &library)
+    })();
+
+    if let Err(error) = write_result {
+        if wrote_manifest {
+            restore_artifact(
+                &layout.manifest_path,
+                old_manifest.as_deref(),
+                Some(&manifest_bytes),
+            );
+        }
+        if wrote_dummy {
+            restore_artifact(
+                &layout.destination,
+                old_dummy.as_deref(),
+                Some(&source_bytes),
+            );
+        }
+        if !updating {
+            let _ = remove_empty_steam_directories(&layout);
+        }
+        return Err(error);
+    }
+
+    Ok(SteamSetupResult {
+        manifest_path: layout.manifest_path.to_string_lossy().to_string(),
+        dest_exe_path: layout.destination.to_string_lossy().to_string(),
+        steam_path: steam_path.to_string_lossy().to_string(),
+        updated_game: library[index].clone(),
+    })
+}
+
+#[tauri::command(async)]
+fn setup_steam_integration(
+    app: AppHandle,
+    state: State<AppState>,
+    request: SteamSetupRequest,
+) -> Result<SteamSetupResult, String> {
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
+    let steam_path = checked_steam_library(request.library_path.as_deref())?;
     let source = find_dummy_source(&app).ok_or_else(|| {
         "Could not find dummy-game.exe. Run `pnpm build:dummy` first.".to_string()
     })?;
-
-    let steam_apps = steam_path.join("steamapps");
-    fs::create_dir_all(&steam_apps).map_err(|error| error.to_string())?;
-    let manifest_path = steam_apps.join(format!("appmanifest_{steam_id}.acf"));
-    let target_dir = steam_apps.join("common").join(&install).join(exe_parent);
-    fs::create_dir_all(&target_dir).map_err(|error| error.to_string())?;
-    let destination = target_dir.join(exe_name);
-
-    let mut library = load_library(&state.paths.my_games_path);
-    let game = library
-        .iter_mut()
-        .find(|game| game.app_id == app_id)
-        .ok_or_else(|| "Game not found in library".to_string())?;
-    let game_name = game.name.clone();
-
-    let manifest = format!(
-        "\"AppState\"\n{{\n    \"appid\" \"{steam_id}\"\n    \"name\" \"{game_name}\"\n    \"installdir\" \"{install}\"\n}}\n"
-    );
-    fs::write(&manifest_path, manifest).map_err(|error| error.to_string())?;
-    fs::copy(&source, &destination).map_err(|error| error.to_string())?;
-
-    game.use_steam_path = true;
-    game.steam_app_id = Some(steam_id);
-    game.install_dir = Some(install);
-    game.exe = exe_relative.to_string_lossy().to_string();
-    game.steam_exe_path = Some(destination.to_string_lossy().to_string());
-    let updated_game = game.clone();
-    write_library(&state.paths.my_games_path, &library)?;
-
-    Ok(SteamSetupResult {
-        manifest_path: manifest_path.to_string_lossy().to_string(),
-        dest_exe_path: destination.to_string_lossy().to_string(),
-        steam_path: steam_path.to_string_lossy().to_string(),
-        updated_game,
-    })
+    setup_steam_at(state.inner(), &source, &steam_path, &request)
 }
 
 #[derive(Debug, Serialize)]
@@ -1399,77 +2032,187 @@ struct SteamRemoveResult {
     updated_game: Option<LibraryGame>,
 }
 
-#[tauri::command]
-fn remove_steam_integration(
-    state: State<AppState>,
-    app_id: String,
-    steam_app_id: Option<String>,
-    install_dir: Option<String>,
+fn remove_steam_at(
+    state: &AppState,
+    steam_path: &Path,
+    app_id: &str,
+    exe: &str,
 ) -> Result<SteamRemoveResult, String> {
-    let steam_path = find_steam_path()
-        .ok_or_else(|| "Steam installation path could not be found".to_string())?;
-    let steam_apps = steam_path.join("steamapps");
-    let mut library = load_library(&state.paths.my_games_path);
-    let game = library.iter_mut().find(|game| game.app_id == app_id);
-    let effective_app_id = steam_app_id
-        .or_else(|| game.as_ref().and_then(|game| game.steam_app_id.clone()))
-        .unwrap_or_default();
-    let effective_install_dir = install_dir
-        .or_else(|| game.as_ref().and_then(|game| game.install_dir.clone()))
-        .unwrap_or_default();
-
-    let mut removed_manifest = false;
-    let mut removed_folder = false;
-
-    if !effective_app_id.is_empty() {
-        let manifest = steam_apps.join(format!("appmanifest_{effective_app_id}.acf"));
-        if manifest.is_file() {
-            fs::remove_file(&manifest).map_err(|error| error.to_string())?;
-            removed_manifest = true;
-        }
+    let running_key = format!("{app_id}::{exe}");
+    if state
+        .running
+        .lock()
+        .map_err(|error| error.to_string())?
+        .contains_key(&running_key)
+    {
+        return Err("Stop the game before removing its Steam integration".to_string());
     }
 
-    if !effective_install_dir.is_empty() {
-        let folder = steam_apps.join("common").join(&effective_install_dir);
-        if folder.is_dir() {
-            fs::remove_dir_all(&folder).map_err(|error| error.to_string())?;
-            removed_folder = true;
-        }
+    let mut library = load_library(&state.paths.my_games_path)?;
+    let index = library
+        .iter()
+        .position(|game| game.app_id == app_id && game.exe == exe)
+        .ok_or_else(|| "Game not found in library".to_string())?;
+    let original = library[index].clone();
+    if !original.use_steam_path {
+        return Err("Steam integration is not configured for this game".to_string());
     }
 
-    let updated_game = if let Some(game) = game {
-        game.use_steam_path = false;
-        game.steam_exe_path = None;
-        let updated = game.clone();
-        write_library(&state.paths.my_games_path, &library)?;
-        Some(updated)
-    } else {
-        None
-    };
+    let layout = steam_layout(
+        steam_path,
+        original.steam_app_id.as_deref().unwrap_or_default(),
+        original.install_dir.as_deref().unwrap_or_default(),
+        &original.exe,
+    )?;
+    reject_redirects(&layout.destination)?;
+    reject_redirects(&layout.manifest_path)?;
+    if layout.install_root.exists() {
+        ensure_existing_within(&layout.common, &layout.install_root)?;
+    }
+
+    let old_manifest = read_owned_artifact(
+        &layout.steam_apps,
+        &layout.manifest_path,
+        original.steam_manifest_sha256.as_deref(),
+    )?;
+    let old_dummy = read_owned_artifact(
+        &layout.install_root,
+        &layout.destination,
+        original.steam_dummy_sha256.as_deref(),
+    )?;
+
+    let mut removed = Vec::new();
+    let remove_result = (|| -> Result<(), String> {
+        for (path, previous) in [
+            (&layout.manifest_path, old_manifest.as_ref()),
+            (&layout.destination, old_dummy.as_ref()),
+        ] {
+            if let Some(bytes) = previous {
+                fs::remove_file(path).map_err(|error| error.to_string())?;
+                removed.push((path.clone(), bytes.clone()));
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = remove_result {
+        for (path, bytes) in &removed {
+            restore_artifact(path, Some(bytes), None);
+        }
+        return Err(error);
+    }
+
+    let removed_folder = original.steam_created_install_dir
+        && layout.install_root.exists()
+        && remove_empty_steam_directories(&layout);
+    library[index].use_steam_path = false;
+    library[index].steam_exe_path = None;
+    library[index].steam_library_path = None;
+    library[index].steam_manifest_sha256 = None;
+    library[index].steam_dummy_sha256 = None;
+    library[index].steam_created_install_dir = false;
+    if let Some(previous_exe) = original.steam_previous_exe {
+        library[index].exe = previous_exe;
+    }
+    library[index].steam_previous_exe = None;
+
+    if library.iter().enumerate().any(|(other, game)| {
+        other != index
+            && game.app_id == app_id
+            && game.exe.eq_ignore_ascii_case(&library[index].exe)
+    }) {
+        for (path, bytes) in &removed {
+            restore_artifact(path, Some(bytes), None);
+        }
+        return Err(
+            "Restoring the original executable would duplicate another library entry".into(),
+        );
+    }
+
+    if let Err(error) = write_library(&state.paths.my_games_path, &library) {
+        for (path, bytes) in &removed {
+            restore_artifact(path, Some(bytes), None);
+        }
+        return Err(error);
+    }
 
     Ok(SteamRemoveResult {
-        removed_manifest,
+        removed_manifest: old_manifest.is_some(),
         removed_folder,
-        updated_game,
+        updated_game: Some(library[index].clone()),
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
+fn remove_steam_integration(
+    state: State<AppState>,
+    app_id: String,
+    exe: String,
+) -> Result<SteamRemoveResult, String> {
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
+    let library = load_library(&state.paths.my_games_path)?;
+    let game = library
+        .iter()
+        .find(|game| game.app_id == app_id && game.exe == exe)
+        .ok_or_else(|| "Game not found in library".to_string())?;
+    let steam_path = checked_steam_library(game.steam_library_path.as_deref())?;
+    remove_steam_at(state.inner(), &steam_path, &app_id, &exe)
+}
+
+fn resolve_dummy_target(
+    app: &AppHandle,
+    paths: &AppPaths,
+    game: &LibraryGame,
+) -> Result<(PathBuf, PathBuf), String> {
+    if game.use_steam_path {
+        let steam_path = checked_steam_library(game.steam_library_path.as_deref())?;
+        let layout = steam_layout(
+            &steam_path,
+            game.steam_app_id.as_deref().unwrap_or_default(),
+            game.install_dir.as_deref().unwrap_or_default(),
+            &game.exe,
+        )?;
+        ensure_existing_within(&layout.common, &layout.install_root)?;
+        read_owned_artifact(
+            &layout.steam_apps,
+            &layout.manifest_path,
+            game.steam_manifest_sha256.as_deref(),
+        )?
+        .ok_or_else(|| "The configured Steam manifest no longer exists".to_string())?;
+        read_owned_artifact(
+            &layout.install_root,
+            &layout.destination,
+            game.steam_dummy_sha256.as_deref(),
+        )?
+        .ok_or_else(|| "The configured Steam dummy no longer exists".to_string())?;
+        let working_dir = layout
+            .destination
+            .parent()
+            .ok_or_else(|| "Invalid executable destination".to_string())?
+            .to_path_buf();
+        return Ok((layout.destination, working_dir));
+    }
+
+    let source = find_dummy_source(app).ok_or_else(|| {
+        "Could not find dummy-game.exe. Run `pnpm build:dummy` first.".to_string()
+    })?;
+    prepare_dummy(&source, paths, &game.app_id, &game.exe)
+}
+
+#[tauri::command(async)]
 fn create_shortcut(
     app: AppHandle,
     state: State<AppState>,
     app_id: String,
     exe: String,
 ) -> Result<String, String> {
-    let library = load_library(&state.paths.my_games_path);
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
+    let library = load_library(&state.paths.my_games_path)?;
     let game = library
         .iter()
         .find(|game| game.app_id == app_id && game.exe == exe)
         .ok_or_else(|| "Game not found in library".to_string())?;
-    let source = find_dummy_source(&app).ok_or_else(|| {
-        "Could not find dummy-game.exe. Run `pnpm build:dummy` first.".to_string()
-    })?;
-    let (destination, working_dir) = prepare_dummy(&source, &state.paths, &game.app_id, &game.exe)?;
+    resolve_dummy_target(&app, &state.paths, game)?;
+    let destination = std::env::current_exe().map_err(|error| error.to_string())?;
     let desktop = app
         .path()
         .desktop_dir()
@@ -1489,29 +2232,46 @@ fn create_shortcut(
 
     let mut link = mslnk::ShellLink::new(&destination).map_err(|error| error.to_string())?;
     link.set_name(Some(game.name.clone()));
-    link.set_arguments(Some(format!("\"{}\"", game.name)));
-    link.set_working_dir(Some(working_dir.to_string_lossy().to_string()));
+    link.set_arguments(Some(format!(
+        "--launch \"{}\" \"{}\"",
+        game.app_id, game.exe
+    )));
+    link.set_working_dir(
+        destination
+            .parent()
+            .map(|dir| dir.to_string_lossy().to_string()),
+    );
     link.create_lnk(&shortcut_path)
         .map_err(|error| error.to_string())?;
 
     Ok(shortcut_path.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn launch_dummy(
     app: AppHandle,
     state: State<AppState>,
     request: LaunchRequest,
 ) -> Result<LaunchResult, String> {
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
+    if UPDATING.load(Ordering::SeqCst) {
+        return Err("An update is being installed".into());
+    }
     let app_id = request.app_id.trim().to_string();
-    let name = request.name.trim().to_string();
     let exe = request.exe.trim().to_string();
 
-    if app_id.is_empty() || name.is_empty() || exe.is_empty() {
-        return Err("App id, name and executable are required".to_string());
+    if app_id.is_empty() || exe.is_empty() {
+        return Err("App id and executable are required".to_string());
     }
 
-    let game_key = format!("{app_id}::{exe}");
+    let library = load_library(&state.paths.my_games_path)?;
+    let game = library
+        .iter()
+        .find(|game| game.app_id == app_id && game.exe == exe)
+        .cloned()
+        .ok_or_else(|| "Game not found in library".to_string())?;
+    let name = game.name.clone();
+    let game_key = format!("{}::{}", game.app_id, game.exe);
 
     {
         let mut running = state.running.lock().map_err(|error| error.to_string())?;
@@ -1531,10 +2291,7 @@ fn launch_dummy(
         }
     }
 
-    let source = find_dummy_source(&app).ok_or_else(|| {
-        "Could not find dummy-game.exe. Run `pnpm build:dummy` first.".to_string()
-    })?;
-    let (destination, working_dir) = prepare_dummy(&source, &state.paths, &app_id, &exe)?;
+    let (destination, working_dir) = resolve_dummy_target(&app, &state.paths, &game)?;
     let settings = state
         .settings
         .lock()
@@ -1544,6 +2301,7 @@ fn launch_dummy(
     let mut command = Command::new(&destination);
     command
         .arg(&name)
+        .arg("--managed")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -1564,9 +2322,9 @@ fn launch_dummy(
         .take()
         .ok_or_else(|| "Could not open dummy stdin".to_string())?;
 
-    let (timer_stop, quest_clock) = if settings.quest_timer_enabled {
+    let (timer_stop, quest_clock, last_tick) = if settings.quest_timer_enabled {
         let timer_id = NEXT_TIMER_ID.fetch_add(1, Ordering::Relaxed);
-        let (stop, clock) = start_quest_timer(
+        let handles = start_quest_timer(
             app.clone(),
             game_key.clone(),
             name.clone(),
@@ -1576,11 +2334,16 @@ fn launch_dummy(
                 buffer_seconds: settings.quest_sync_buffer_seconds,
                 auto_stop: settings.auto_stop_on_complete,
                 notify: settings.notify_on_complete,
+                spanish: is_spanish(&settings),
             },
         );
-        (Some(stop), Some(clock))
+        (
+            Some(handles.stop),
+            Some(handles.clock),
+            Some(handles.last_tick),
+        )
     } else {
-        (None, None)
+        (None, None, None)
     };
 
     let dummy = RunningDummy {
@@ -1589,6 +2352,7 @@ fn launch_dummy(
         name,
         timer_stop,
         quest_clock,
+        last_tick,
     };
 
     state
@@ -1599,6 +2363,15 @@ fn launch_dummy(
 
     update_tray_menu(&app, state.inner());
 
+    let _ = app.emit(
+        "dummy://started",
+        ExitedPayload {
+            key: game_key.clone(),
+            name: game.name,
+            code: None,
+        },
+    );
+
     Ok(LaunchResult {
         game_key,
         exe_path: destination.to_string_lossy().to_string(),
@@ -1606,7 +2379,7 @@ fn launch_dummy(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn stop_dummy(app: AppHandle, state: State<AppState>, game_key: String) -> Result<bool, String> {
     let dummy = state
         .running
@@ -1615,8 +2388,17 @@ fn stop_dummy(app: AppHandle, state: State<AppState>, game_key: String) -> Resul
         .remove(&game_key);
 
     if let Some(dummy) = dummy {
+        let name = dummy.name.clone();
         stop_running_dummy(dummy);
         update_tray_menu(&app, state.inner());
+        let _ = app.emit(
+            "dummy://exited",
+            ExitedPayload {
+                key: game_key,
+                name,
+                code: None,
+            },
+        );
         Ok(true)
     } else {
         Ok(false)
@@ -1649,14 +2431,24 @@ fn resume_dummy(state: State<AppState>, game_key: String) -> Result<bool, String
     set_dummy_paused(state.inner(), &game_key, false)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn stop_all_dummies(app: AppHandle, state: State<AppState>) -> Result<usize, String> {
     let mut running = state.running.lock().map_err(|error| error.to_string())?;
     let count = running.len();
-    for (_, dummy) in running.drain() {
-        stop_running_dummy(dummy);
-    }
+    let entries: Vec<_> = running.drain().collect();
     drop(running);
+    for (key, dummy) in entries {
+        let name = dummy.name.clone();
+        stop_running_dummy(dummy);
+        let _ = app.emit(
+            "dummy://exited",
+            ExitedPayload {
+                key,
+                name,
+                code: None,
+            },
+        );
+    }
     update_tray_menu(&app, state.inner());
     Ok(count)
 }
@@ -1666,19 +2458,45 @@ fn list_running_dummies(state: State<AppState>) -> Result<Vec<String>, String> {
     running_keys(&state)
 }
 
+#[tauri::command]
+fn report_frontend_error(message: String) {
+    log::error!(
+        "UI operation: {}",
+        message.chars().take(2000).collect::<String>()
+    );
+}
+
+#[tauri::command(async)]
+fn set_update_installing(state: State<AppState>, installing: bool) -> Result<(), String> {
+    let _guard = DATA_OPERATIONS.lock().map_err(|error| error.to_string())?;
+    if installing && !running_keys(&state)?.is_empty() {
+        return Err("Stop all active dummies before installing an update".into());
+    }
+    UPDATING.store(installing, Ordering::SeqCst);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            show_main_window(app);
+            dispatch_shortcut(app.clone(), args);
+        }))
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Resized(_))
+                && window.is_minimized().unwrap_or(false)
+            {
+                let _ = window.hide();
             }
+        })
+        .setup(|app| {
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
             app.handle().plugin(tauri_plugin_notification::init())?;
-            app.handle().plugin(tauri_plugin_opener::init())?;
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
             app.handle().plugin(tauri_plugin_process::init())?;
@@ -1708,6 +2526,7 @@ pub fn run() {
             app.manage(state);
             create_tray(app.handle())?;
             spawn_monitor(app.handle().clone(), running);
+            dispatch_shortcut(app.handle().clone(), std::env::args().collect());
 
             Ok(())
         })
@@ -1725,6 +2544,7 @@ pub fn run() {
             update_game_executable,
             create_shortcut,
             get_steam_path,
+            get_steam_libraries,
             setup_steam_integration,
             remove_steam_integration,
             launch_dummy,
@@ -1732,7 +2552,9 @@ pub fn run() {
             pause_dummy,
             resume_dummy,
             stop_all_dummies,
-            list_running_dummies
+            list_running_dummies,
+            set_update_installing,
+            report_frontend_error
         ])
         .build(tauri::generate_context!())
         .expect("error while building Dummies")
@@ -1742,6 +2564,25 @@ pub fn run() {
                 stop_all_internal(state.inner());
             }
         });
+}
+
+fn dispatch_shortcut(app: AppHandle, args: Vec<String>) {
+    if args.get(1).map(String::as_str) != Some("--launch") {
+        return;
+    }
+    let (Some(app_id), Some(exe)) = (args.get(2), args.get(3)) else {
+        return;
+    };
+    let request = LaunchRequest {
+        app_id: app_id.clone(),
+        exe: exe.clone(),
+    };
+    thread::spawn(move || {
+        if let Err(error) = launch_dummy(app.clone(), app.state::<AppState>(), request) {
+            log::error!("Shortcut launch failed: {error}");
+            let _ = app.emit("dummy://error", error);
+        }
+    });
 }
 
 #[cfg(test)]
@@ -1787,6 +2628,7 @@ mod tests {
             quest_sync_buffer_seconds: 999,
             auto_stop_on_complete: true,
             notify_on_complete: true,
+            ..Default::default()
         });
 
         assert_eq!(settings.theme, "system");
@@ -1814,6 +2656,7 @@ mod tests {
             quest_sync_buffer_seconds: 30,
             auto_stop_on_complete: false,
             notify_on_complete: false,
+            ..Default::default()
         };
 
         write_settings(&path, &settings).expect("write settings");

@@ -101,7 +101,7 @@ export default function PosterCard({
         <div className="poster-card__overlay">
           {game.running ? (
             <div className="poster-card__controls">
-              {canPause ? (
+              {canPause && game.phase && game.phase !== "complete" ? (
                 <button
                   type="button"
                   className="play-button"
@@ -159,6 +159,7 @@ export default function PosterCard({
           className="more-button"
           aria-label={t("game.more")}
           title={t("game.more")}
+          onClick={() => onOpen(game)}
         >
           <MoreHorizontal20Regular />
         </button>

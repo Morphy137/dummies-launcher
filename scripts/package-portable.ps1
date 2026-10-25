@@ -2,6 +2,8 @@ param(
   [string]$OutputDirectory = ""
 )
 
+$ErrorActionPreference = "Stop"
+
 $root = Split-Path -Parent $PSScriptRoot
 $releaseDirectory = Join-Path $root "src-tauri\target\release"
 $executable = Join-Path $releaseDirectory "dummies.exe"
@@ -23,10 +25,16 @@ New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 
 $staging = Join-Path $env:TEMP ("dummies-portable-" + [guid]::NewGuid().ToString("N"))
 $resources = Join-Path $staging "resources"
+try {
 New-Item -ItemType Directory -Force $resources | Out-Null
 
 Copy-Item -Force $executable (Join-Path $staging "Dummies.exe")
 Copy-Item -Force $dummy (Join-Path $resources "dummy-game.exe")
+Set-Content -Path (Join-Path $staging "portable.marker") -Value "manual-updates" -Encoding ascii
+foreach ($name in @("LICENSE", "THIRD_PARTY_NOTICES.md")) {
+  Copy-Item (Join-Path $root $name) (Join-Path $staging $name)
+}
+Copy-Item (Join-Path $root "src-tauri/resources/DEPENDENCY_LICENSES.txt") (Join-Path $staging "DEPENDENCY_LICENSES.txt")
 
 $readme = Join-Path $root "README.md"
 if (Test-Path $readme) {
@@ -39,6 +47,7 @@ if (Test-Path $archive) {
 }
 
 Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $archive -CompressionLevel Optimal
-Remove-Item -Recurse -Force $staging
-
 Write-Output ("Portable package: {0} ({1:N2} MiB)" -f $archive, ((Get-Item $archive).Length / 1MB))
+} finally {
+  if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
+}

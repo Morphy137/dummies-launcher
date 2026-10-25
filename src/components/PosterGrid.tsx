@@ -1,5 +1,4 @@
-import { Add16Filled } from "@fluentui/react-icons";
-import type { CSSProperties } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type Game, makeGameKey } from "../types";
 import PosterCard from "./PosterCard";
@@ -8,7 +7,6 @@ interface PosterGridProps {
   games: Game[];
   cardsPerRow: number;
   canPause: boolean;
-  onAddGame: () => void;
   onOpenGame: (game: Game) => void;
   onToggleFavorite: (game: Game) => void;
   onToggleRunning: (game: Game) => void;
@@ -20,7 +18,6 @@ export default function PosterGrid({
   games,
   cardsPerRow,
   canPause,
-  onAddGame,
   onOpenGame,
   onToggleFavorite,
   onToggleRunning,
@@ -28,25 +25,46 @@ export default function PosterGrid({
   busyKey,
 }: PosterGridProps) {
   const { t } = useTranslation();
+  const gridRef = useRef<HTMLElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!gridRef.current) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    observer.observe(gridRef.current);
+    return () => observer.disconnect();
+  }, []);
+  const columns = width
+    ? Math.min(cardsPerRow, Math.max(1, Math.floor((width + 16) / 146)))
+    : cardsPerRow;
   const gridStyle = {
-    "--cards-per-row": String(cardsPerRow),
+    "--cards-per-row": String(columns),
   } as CSSProperties;
 
-  if (games.length === 0) {
-    return (
-      <section className="empty-state">
-        <h2 className="empty-state__title">{t("library.emptyTitle")}</h2>
-        <p className="empty-state__body">{t("library.emptyBody")}</p>
-        <button type="button" className="primary-button" onClick={onAddGame}>
-          <Add16Filled aria-hidden="true" />
-          {t("library.emptyAction")}
-        </button>
-      </section>
-    );
-  }
-
   return (
-    <section className="poster-grid" style={gridStyle} aria-label={t("library.title")}>
+    <section
+      ref={gridRef}
+      className="poster-grid"
+      style={gridStyle}
+      aria-label={t("library.title")}
+      onKeyDown={(event) => {
+        const offsets: Record<string, number> = {
+          ArrowRight: 1,
+          ArrowLeft: -1,
+          ArrowDown: columns,
+          ArrowUp: -columns,
+        };
+        const offset = offsets[event.key];
+        if (offset === undefined || !(event.target instanceof HTMLElement)) return;
+        const card = event.target.closest(".poster-card");
+        const cards = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(".poster-card"));
+        const index = card instanceof HTMLElement ? cards.indexOf(card) : -1;
+        const next = cards[index + offset]?.querySelector<HTMLButtonElement>(".poster-card__open");
+        if (next) {
+          event.preventDefault();
+          next.focus();
+        }
+      }}
+    >
       {games.map((game) => (
         <PosterCard
           key={makeGameKey(game)}

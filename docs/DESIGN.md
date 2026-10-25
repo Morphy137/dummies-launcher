@@ -13,6 +13,12 @@ lastUpdated: "2026-10-21"
 
 # Dummies Design System
 
+Implementation note (2026-10-25): this is a visual reference, not a feature checklist.
+`ARCHITECTURE.md` is authoritative for shipped behavior. Settings is a modal with explicit
+Save/Cancel; Escape/backdrop cancels. Catalog results use bounded pages rather than an
+unbounded virtualized command palette. Native materials, generated bindings and a native
+renderer remain out of scope. Timer pause affects only the local estimate.
+
 This is an adaptation of the Raycast DESIGN.md visual language for a Windows desktop
 launcher. It is not a copy of Raycast's product UI. The app keeps Raycast's restraint:
 near-black surfaces, hairline borders, no drop shadows, Inter with the `ss03` stylistic

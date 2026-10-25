@@ -23,6 +23,11 @@ export function useResolvedTheme(preference: ThemeMode): ResolvedTheme {
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolved;
+    try {
+      localStorage.setItem("dummies-theme", resolved);
+    } catch {
+      /* Storage may be disabled. */
+    }
   }, [resolved]);
 
   return resolved;

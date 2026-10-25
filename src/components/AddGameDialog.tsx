@@ -8,9 +8,10 @@ import {
   Spinner,
 } from "@fluentui/react-components";
 import { Add16Regular, Search20Regular } from "@fluentui/react-icons";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getDatabasePage, syncGamelist } from "../lib/backend";
+import { formatError } from "../lib/errors";
 import type { DatabaseGame } from "../types";
 
 interface AddGameDialogProps {
@@ -20,7 +21,6 @@ interface AddGameDialogProps {
 }
 
 const PAGE_SIZE = 60;
-
 export default function AddGameDialog({ open, onOpenChange, onAdd }: AddGameDialogProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -30,88 +30,83 @@ export default function AddGameDialog({ open, onOpenChange, onAdd }: AddGameDial
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
   const [addingKey, setAddingKey] = useState<string | null>(null);
-  const hasSynced = useRef(false);
-  const requestId = useRef(0);
+  const attemptedSync = useRef(false);
+  const syncBusy = useRef(false);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const refresh = useCallback(async () => {
+    if (syncBusy.current) return;
+    syncBusy.current = true;
+    attemptedSync.current = true;
+    setSyncing(true);
+    setError(null);
+    try {
+      await syncGamelist();
+      setRevision((value) => value + 1);
+    } catch (reason: unknown) {
+      setError(`${t("catalog.offline")} ${formatError(reason)}`);
+    } finally {
+      syncBusy.current = false;
+      setSyncing(false);
+    }
+  }, [t]);
 
   useEffect(() => {
+    if (open && !attemptedSync.current) void refresh();
+  }, [open, refresh]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a successful catalog sync invalidates the cached page.
+  useEffect(() => {
     if (!open) return;
-
     let cancelled = false;
-    const currentRequest = ++requestId.current;
+    setLoading(true);
     const timer = window.setTimeout(
-      async () => {
-        setLoading(true);
-        setError(null);
-
-        try {
-          if (!hasSynced.current) {
-            setSyncing(true);
-            try {
-              await syncGamelist();
-              hasSynced.current = true;
-            } catch (syncError: unknown) {
-              if (!cancelled) {
-                setError(syncError instanceof Error ? syncError.message : String(syncError));
-              }
-            } finally {
-              if (!cancelled) setSyncing(false);
-            }
-          }
-
-          const page = await getDatabasePage(query, 0, PAGE_SIZE);
-          if (cancelled || currentRequest !== requestId.current) return;
-          setItems(page.items);
-          setOffset(page.items.length);
-          setHasMore(page.hasMore);
-        } catch (loadError: unknown) {
-          if (!cancelled) {
-            setError(loadError instanceof Error ? loadError.message : String(loadError));
-          }
-        } finally {
-          if (!cancelled) setLoading(false);
-        }
+      () => {
+        void getDatabasePage(query, offset, PAGE_SIZE)
+          .then((page) => {
+            if (cancelled) return;
+            setItems(page.items);
+            setHasMore(page.hasMore);
+            if (listRef.current) listRef.current.scrollTop = 0;
+          })
+          .catch((reason: unknown) => {
+            if (!cancelled) setError(formatError(reason));
+          })
+          .finally(() => {
+            if (!cancelled) setLoading(false);
+          });
       },
       query ? 250 : 0,
     );
-
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, query]);
-
-  const loadMore = async () => {
-    if (loading || !hasMore) return;
-    setLoading(true);
-    try {
-      const page = await getDatabasePage(query, offset, PAGE_SIZE);
-      setItems((current) => [...current, ...page.items]);
-      setOffset((current) => current + page.items.length);
-      setHasMore(page.hasMore);
-    } catch (loadError: unknown) {
-      setError(loadError instanceof Error ? loadError.message : String(loadError));
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [open, query, offset, revision]);
 
   const handleAdd = async (game: DatabaseGame) => {
-    const key = `${game.id}::${game.exe}`;
-    setAddingKey(key);
+    if (addingKey) return;
+    setAddingKey(`${game.id}::${game.exe}`);
     setError(null);
     try {
       await onAdd(game);
       onOpenChange(false);
-    } catch (addError: unknown) {
-      setError(addError instanceof Error ? addError.message : String(addError));
+    } catch (reason: unknown) {
+      setError(formatError(reason));
     } finally {
       setAddingKey(null);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(_, data) => onOpenChange(data.open)}>
+    <Dialog
+      open={open}
+      onOpenChange={(_, data) => {
+        if (!addingKey) onOpenChange(data.open);
+      }}
+    >
       <DialogSurface className="catalog-dialog">
         <DialogBody className="catalog-body">
           <DialogTitle className="catalog-title">{t("catalog.title")}</DialogTitle>
@@ -120,67 +115,91 @@ export default function AddGameDialog({ open, onOpenChange, onAdd }: AddGameDial
               <Search20Regular aria-hidden="true" />
               <input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setOffset(0);
+                  setItems([]);
+                }}
                 placeholder={t("catalog.searchPlaceholder")}
                 aria-label={t("catalog.searchPlaceholder")}
                 spellCheck={false}
                 autoFocus
               />
             </label>
-
-            {error ? <div className="catalog-error">{error}</div> : null}
-
-            <div className="catalog-list">
-              {syncing ? (
-                <div className="catalog-status">
-                  <Spinner size="tiny" />
-                  {t("catalog.syncing")}
-                </div>
-              ) : null}
-
-              {items.map((game) => {
-                const key = `${game.id}::${game.exe}`;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className="catalog-row"
-                    onClick={() => void handleAdd(game)}
-                    disabled={addingKey !== null}
-                  >
-                    <span className="catalog-row__text">
-                      <span className="catalog-row__name">{game.name}</span>
-                      <span className="catalog-row__exe">{game.exe}</span>
-                    </span>
-                    {game.usesNewDetection ? (
-                      <span className="catalog-badge">{t("catalog.fallbackExe")}</span>
-                    ) : null}
-                    <span className="catalog-row__add">
-                      {addingKey === key ? <Spinner size="tiny" /> : <Add16Regular />}
-                    </span>
-                  </button>
-                );
-              })}
-
-              {!syncing && !loading && items.length === 0 ? (
-                <div className="catalog-status">{t("catalog.empty")}</div>
-              ) : null}
-
-              {hasMore ? (
+            {error ? (
+              <div className="catalog-error" role="alert">
+                {error}
+              </div>
+            ) : null}
+            {syncing ? (
+              <div role="status">
+                <Spinner size="tiny" />
+                {t("catalog.syncing")}
+              </div>
+            ) : null}
+            <div className="catalog-list" ref={listRef} aria-busy={loading}>
+              {items.map((game) => (
                 <button
+                  key={`${game.id}::${game.exe}`}
                   type="button"
-                  className="secondary-button catalog-more"
-                  onClick={() => void loadMore()}
-                  disabled={loading}
+                  className="catalog-row"
+                  onClick={() => void handleAdd(game)}
+                  disabled={addingKey !== null || loading}
                 >
-                  {loading ? t("catalog.loading") : t("catalog.loadMore")}
+                  <span className="catalog-row__text">
+                    <span className="catalog-row__name">{game.name}</span>
+                    <span className="catalog-row__exe">{game.exe}</span>
+                  </span>
+                  {game.usesNewDetection ? (
+                    <span className="catalog-badge">{t("catalog.fallbackExe")}</span>
+                  ) : null}
+                  <span className="catalog-row__add">
+                    <Add16Regular />
+                  </span>
                 </button>
+              ))}
+              {loading ? (
+                <div className="catalog-status" role="status">
+                  {t("catalog.loading")}
+                </div>
+              ) : items.length === 0 ? (
+                <div className="catalog-status">
+                  {t(query ? "catalog.empty" : "catalog.noCache")}
+                </div>
               ) : null}
             </div>
           </DialogContent>
-
           <DialogActions className="catalog-actions">
-            <button type="button" className="secondary-button" onClick={() => onOpenChange(false)}>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void refresh()}
+              disabled={syncing || !!addingKey}
+            >
+              {t("catalog.refresh")}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={loading || offset === 0 || !!addingKey}
+              onClick={() => setOffset((value) => Math.max(0, value - PAGE_SIZE))}
+            >
+              {t("catalog.previous")}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={loading || !hasMore || !!addingKey}
+              onClick={() => setOffset((value) => value + PAGE_SIZE)}
+            >
+              {t("catalog.next")}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={!!addingKey}
+              onClick={() => onOpenChange(false)}
+            >
               {t("common.close")}
             </button>
           </DialogActions>

@@ -100,7 +100,6 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  user-select: none;
 }
 
 button,
@@ -313,6 +312,10 @@ button {
   display: flex;
   align-items: center;
   gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
 }
 
 .filter-pill {
@@ -351,8 +354,8 @@ button {
 
 .icon-button {
   display: inline-grid;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   place-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -377,8 +380,8 @@ button {
 }
 
 .icon-button--small {
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-sm);
 }
 
@@ -605,8 +608,8 @@ button {
   top: 8px;
   right: 8px;
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   place-items: center;
   border: 0;
@@ -777,9 +780,9 @@ button {
 
 .more-button {
   display: grid;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
   place-items: center;
   border: 0;
   border-radius: var(--radius-sm);
@@ -811,7 +814,7 @@ button {
 
 .game-row {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) minmax(120px, 220px) 120px 24px;
+  grid-template-columns: 8px minmax(0, 1fr) minmax(120px, 220px) 120px 80px;
   align-items: center;
   gap: 12px;
   padding: 10px 8px;
@@ -1472,13 +1475,13 @@ button {
   border-color: var(--hairline-strong);
 }
 
-.detail__row .secondary-button {
+:where(.detail__row) .secondary-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.detail__row .secondary-button svg {
+:where(.detail__row) .secondary-button svg {
   width: 16px;
   height: 16px;
 }
@@ -1516,7 +1519,7 @@ button {
   height: 16px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .detail__hero-content {
     flex-direction: column;
     align-items: flex-start;
@@ -1592,9 +1595,9 @@ button {
 
 .toast__close {
   display: grid;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 22px;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
   place-items: center;
   border: 0;
   border-radius: var(--radius-sm);
@@ -1998,7 +2001,7 @@ button {
 
 /* ── Responsive ────────────────────────────────────────────── */
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .library {
     padding: 20px 20px 40px;
   }
@@ -2021,7 +2024,7 @@ button {
   }
 
   .game-row {
-    grid-template-columns: 8px minmax(0, 1fr) 100px 24px;
+    grid-template-columns: 8px minmax(0, 1fr) 100px 80px;
   }
 
   .game-row__exe {
@@ -2049,4 +2052,70 @@ button {
 .detail__actions .detail__pause:hover {
   background: rgba(255, 255, 255, 0.15);
   color: #ffffff;
+}
+
+.game-row__open {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.game-row__actions {
+  display: flex;
+}
+.detail__timer {
+  align-items: center;
+  gap: 16px;
+}
+.quest-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: white;
+  max-width: 440px;
+}
+.quest-dock progress {
+  width: 100%;
+  accent-color: var(--accent-green);
+}
+.quest-dock small {
+  font-size: 12px;
+}
+.search-box:focus-within,
+.catalog-search:focus-within,
+.steam-input:focus-visible,
+.detail__input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  .app-shell,
+  .detail-view,
+  .settings-dialog,
+  .catalog-dialog,
+  .steam-dialog {
+    background: Canvas;
+    color: CanvasText;
+  }
+  button,
+  input,
+  .poster-card__art,
+  .switch__track {
+    border: 1px solid ButtonText;
+  }
+  .switch input:checked + .switch__track {
+    background: Highlight;
+  }
+  .detail__scrim {
+    background: Canvas;
+  }
+  .detail__info h1,
+  .detail__meta,
+  .quest-dock {
+    color: CanvasText;
+  }
+  :focus-visible {
+    outline: 2px solid Highlight;
+  }
 }

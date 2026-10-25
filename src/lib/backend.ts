@@ -6,9 +6,9 @@ import {
   type DatabasePage,
   DEFAULT_SETTINGS,
   type DummyExitedPayload,
-  type Game,
   type LaunchRequest,
   type LaunchResult,
+  type LibraryGame,
   type QuestTick,
   type Settings,
   type SteamRemoveResult,
@@ -16,6 +16,7 @@ import {
   type SteamSetupResult,
   type SyncResult,
 } from "../types";
+import { disposeSubscription } from "./subscription";
 
 function browserBootstrap(): Bootstrap {
   return {
@@ -24,6 +25,8 @@ function browserBootstrap(): Bootstrap {
     runningKeys: [],
     library: [],
     version: "dev",
+    portable: false,
+    questTicks: [],
   };
 }
 
@@ -37,11 +40,15 @@ export async function saveSettings(settings: Settings): Promise<Settings> {
   return invoke<Settings>("save_settings", { settings });
 }
 
+let catalogRequest: Promise<SyncResult> | undefined;
 export async function syncGamelist(): Promise<SyncResult> {
   if (!isTauri()) {
     return { updated: false, count: 0, path: "" };
   }
-  return invoke<SyncResult>("sync_gamelist");
+  catalogRequest ??= invoke<SyncResult>("sync_gamelist").finally(() => {
+    catalogRequest = undefined;
+  });
+  return catalogRequest;
 }
 
 export async function getDatabasePage(
@@ -53,14 +60,14 @@ export async function getDatabasePage(
   return invoke<DatabasePage>("get_database_page", { filter, offset, limit });
 }
 
-export async function getLibrary(): Promise<Game[]> {
+export async function getLibrary(): Promise<LibraryGame[]> {
   if (!isTauri()) return [];
-  return invoke<Game[]>("get_library");
+  return invoke<LibraryGame[]>("get_library");
 }
 
-export async function addGame(game: DatabaseGame): Promise<Game> {
+export async function addGame(game: DatabaseGame): Promise<LibraryGame> {
   if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
-  return invoke<Game>("add_game", {
+  return invoke<LibraryGame>("add_game", {
     request: {
       id: game.id,
       name: game.name,
@@ -78,18 +85,18 @@ export async function removeGame(appId: string, exe: string): Promise<boolean> {
   return invoke<boolean>("remove_game", { appId, exe });
 }
 
-export async function toggleFavorite(appId: string, exe: string): Promise<Game> {
+export async function toggleFavorite(appId: string, exe: string): Promise<LibraryGame> {
   if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
-  return invoke<Game>("toggle_favorite", { appId, exe });
+  return invoke<LibraryGame>("toggle_favorite", { appId, exe });
 }
 
 export async function updateGameExecutable(
   appId: string,
   oldExe: string,
   newExe: string,
-): Promise<Game> {
+): Promise<LibraryGame> {
   if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
-  return invoke<Game>("update_game_executable", { appId, oldExe, newExe });
+  return invoke<LibraryGame>("update_game_executable", { appId, oldExe, newExe });
 }
 
 export async function createShortcut(appId: string, exe: string): Promise<string> {
@@ -102,21 +109,24 @@ export async function getSteamPath(): Promise<string | null> {
   return invoke<string | null>("get_steam_path");
 }
 
+export async function getSteamLibraries(): Promise<string[]> {
+  if (!isTauri()) return [];
+  return invoke<string[]>("get_steam_libraries");
+}
+
 export async function setupSteamIntegration(request: SteamSetupRequest): Promise<SteamSetupResult> {
   if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
-  return invoke<SteamSetupResult>("setup_steam_integration", { ...request });
+  return invoke<SteamSetupResult>("setup_steam_integration", { request });
 }
 
 export async function removeSteamIntegration(
   appId: string,
-  steamAppId?: string | null,
-  installDir?: string | null,
+  exe: string,
 ): Promise<SteamRemoveResult> {
   if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
   return invoke<SteamRemoveResult>("remove_steam_integration", {
     appId,
-    steamAppId: steamAppId ?? null,
-    installDir: installDir ?? null,
+    exe,
   });
 }
 
@@ -155,27 +165,23 @@ export async function listRunningDummies(): Promise<string[]> {
 export function onDummyExited(handler: (payload: DummyExitedPayload) => void): () => void {
   if (!isTauri()) return () => {};
 
-  let unlisten: (() => void) | undefined;
-  void listen<DummyExitedPayload>("dummy://exited", (event) => handler(event.payload)).then(
-    (fn) => {
-      unlisten = fn;
-    },
+  return disposeSubscription(
+    listen<DummyExitedPayload>("dummy://exited", (event) => handler(event.payload)),
   );
-
-  return () => {
-    unlisten?.();
-  };
 }
 
 export function onQuestTick(handler: (payload: QuestTick) => void): () => void {
   if (!isTauri()) return () => {};
 
-  let unlisten: (() => void) | undefined;
-  void listen<QuestTick>("quest://tick", (event) => handler(event.payload)).then((fn) => {
-    unlisten = fn;
-  });
+  return disposeSubscription(listen<QuestTick>("quest://tick", (event) => handler(event.payload)));
+}
 
-  return () => {
-    unlisten?.();
-  };
+export function onDummyStarted(handler: (payload: DummyExitedPayload) => void): () => void {
+  return disposeSubscription(
+    listen<DummyExitedPayload>("dummy://started", (event) => handler(event.payload)),
+  );
+}
+
+export function onDummyError(handler: (message: string) => void): () => void {
+  return disposeSubscription(listen<string>("dummy://error", (event) => handler(event.payload)));
 }

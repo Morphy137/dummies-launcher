@@ -13,6 +13,7 @@ node_modules/
 # Tauri
 /src-tauri/gen/
 /src-tauri/resources/dummy-game.exe
+/src-tauri/resources/DEPENDENCY_LICENSES.txt
 /.tauri/
 
 # Local
