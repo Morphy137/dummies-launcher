@@ -19,7 +19,7 @@ The subsequent backend-refactor commit separates the implementation without addi
   searching, stale-response protection, distinct empty/error/loading states, shared retro countdown,
   explicit Save/Cancel, imported options, focus restoration, responsive columns and keyboard support.
 - Localization/accessibility: document language, translated errors/native copy, high-contrast
-  styles, selectable data, larger icon targets and delayed subscription cleanup.
+  styles, selection within editable fields, larger icon targets and delayed subscription cleanup.
 - Security/distribution: CSP, removed opener, release logging, update install guard,
   portable marker/manual updates, root static-CRT config, packaged license inventories,
   CI checks before release and truthful architecture/QA documentation.

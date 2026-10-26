@@ -50,6 +50,7 @@ fn normalizes_unknown_settings() {
         show_dummy_window: true,
         minimize_to_tray: false,
         cards_per_row: 99,
+        max_card_width: 999,
         quest_timer_enabled: true,
         quest_duration_minutes: 0,
         quest_sync_buffer_seconds: 999,
@@ -61,6 +62,7 @@ fn normalizes_unknown_settings() {
     assert_eq!(settings.theme, "system");
     assert_eq!(settings.language, "system");
     assert_eq!(settings.cards_per_row, 6);
+    assert_eq!(settings.max_card_width, 180);
     assert_eq!(settings.quest_duration_minutes, 15);
     assert_eq!(settings.quest_sync_buffer_seconds, 60);
     assert!(settings.show_dummy_window);
@@ -100,6 +102,30 @@ fn writes_and_reads_settings() {
     assert!(!loaded.minimize_to_tray);
 
     fs::remove_dir_all(directory).expect("cleanup temp dir");
+}
+
+#[test]
+fn supports_dense_bounded_cards_and_defaults_older_settings() {
+    let old: Settings = serde_json::from_str(r#"{"cardsPerRow":8}"#).unwrap();
+    assert_eq!(normalize_settings(old).max_card_width, 180);
+    let settings = normalize_settings(Settings {
+        cards_per_row: 24,
+        max_card_width: 240,
+        ..Default::default()
+    });
+    let json = serde_json::to_value(&settings).unwrap();
+    assert_eq!(json["cardsPerRow"], 24);
+    assert_eq!(json["maxCardWidth"], 240);
+    let restored: Settings = serde_json::from_value(json).unwrap();
+    assert_eq!(restored.max_card_width, 240);
+    assert_eq!(
+        normalize_settings(Settings {
+            max_card_width: 0,
+            ..Default::default()
+        })
+        .max_card_width,
+        180
+    );
 }
 
 #[test]

@@ -98,8 +98,12 @@ export default {
     languageEnglish: "English",
     languageSpanish: "Español",
     cardsPerRow: "Tarjetas por fila",
-    cardsPerRowDesc: "Elige cuántas portadas caben horizontalmente.",
+    cardsPerRowDesc: "Máximo de portadas por fila (4–24). En ventanas estrechas caben menos.",
     cardsPerRowValue: "{{count}} tarjetas",
+    maxCardWidth: "Ancho máximo de las tarjetas",
+    maxCardWidthDesc:
+      "Limita el tamaño de las portadas en píxeles, incluso al maximizar. Se reducen si falta espacio.",
+    pixelsValue: "{{count}} px",
     questAutomation: "Automatización de quests",
     questTimer: "Temporizador de quest",
     questTimerDesc: "Muestra una cuenta atrás mientras el dummy está activo.",

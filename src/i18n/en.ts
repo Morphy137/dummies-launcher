@@ -98,8 +98,12 @@ export default {
     languageEnglish: "English",
     languageSpanish: "Español",
     cardsPerRow: "Cards per row",
-    cardsPerRowDesc: "Choose how many posters fit horizontally.",
+    cardsPerRowDesc: "Maximum number of posters per row (4–24). Fewer fit in narrow windows.",
     cardsPerRowValue: "{{count}} cards",
+    maxCardWidth: "Maximum card width",
+    maxCardWidthDesc:
+      "Limit poster size in pixels, including when maximized. Cards can shrink to fit.",
+    pixelsValue: "{{count}} px",
     questAutomation: "Quest automation",
     questTimer: "Quest countdown timer",
     questTimerDesc: "Show a live countdown while a dummy is running.",

@@ -70,6 +70,36 @@ afterEach(() => {
 });
 
 describe("critical UI flows", () => {
+  it("previews and saves the expanded row limit and maximum card width", async () => {
+    const preview = vi.fn();
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SettingsDialog
+        open
+        settings={DEFAULT_SETTINGS}
+        version="test"
+        portable={false}
+        onPreview={preview}
+        onCancel={vi.fn()}
+        onDismiss={vi.fn()}
+        onSave={save}
+        onCheckForUpdates={vi.fn().mockResolvedValue("current")}
+      />,
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "settings.cardsPerRow" }));
+    fireEvent.click(await screen.findByRole("option", { name: "settings.cardsPerRowValue 24" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "settings.maxCardWidth" }));
+    fireEvent.click(await screen.findByRole("option", { name: "settings.pixelsValue 240" }));
+    expect(preview).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cardsPerRow: 24, maxCardWidth: 240 }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({ cardsPerRow: 24, maxCardWidth: 240 }),
+      ),
+    );
+  });
   it("retains imported timer options and treats Escape as cancellation", async () => {
     const dismiss = vi.fn();
     render(

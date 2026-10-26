@@ -6,6 +6,7 @@ import PosterCard from "./PosterCard";
 interface PosterGridProps {
   games: Game[];
   cardsPerRow: number;
+  maxCardWidth: number;
   canPause: boolean;
   onOpenGame: (game: Game) => void;
   onToggleFavorite: (game: Game) => void;
@@ -17,6 +18,7 @@ interface PosterGridProps {
 export default function PosterGrid({
   games,
   cardsPerRow,
+  maxCardWidth,
   canPause,
   onOpenGame,
   onToggleFavorite,
@@ -38,6 +40,7 @@ export default function PosterGrid({
     : cardsPerRow;
   const gridStyle = {
     "--cards-per-row": String(columns),
+    "--card-max-width": `${maxCardWidth}px`,
   } as CSSProperties;
 
   return (

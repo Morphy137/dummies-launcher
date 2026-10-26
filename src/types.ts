@@ -31,6 +31,7 @@ export interface Settings {
   showDummyWindow: boolean;
   minimizeToTray: boolean;
   cardsPerRow: number;
+  maxCardWidth: number;
   questTimerEnabled: boolean;
   questDurationMinutes: number;
   questSyncBufferSeconds: number;
@@ -44,6 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showDummyWindow: true,
   minimizeToTray: true,
   cardsPerRow: 6,
+  maxCardWidth: 180,
   questTimerEnabled: true,
   questDurationMinutes: 15,
   questSyncBufferSeconds: 60,

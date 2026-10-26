@@ -203,12 +203,32 @@ export default function SettingsDialog({
                 </span>
                 <SettingsDropdown
                   value={String(draft.cardsPerRow)}
-                  options={[4, 5, 6, 7, 8].map((count) => ({
+                  options={Array.from({ length: 21 }, (_, index) => index + 4).map((count) => ({
                     value: String(count),
                     label: t("settings.cardsPerRowValue", { count }),
                   }))}
                   onChange={(value) => updateDraft({ ...draft, cardsPerRow: Number(value) })}
                   ariaLabel={t("settings.cardsPerRow")}
+                />
+              </div>
+
+              <div className="settings-row">
+                <span className="settings-row__text">
+                  <span className="settings-row__label">{t("settings.maxCardWidth")}</span>
+                  <span className="settings-row__desc">{t("settings.maxCardWidthDesc")}</span>
+                </span>
+                <SettingsDropdown
+                  value={String(draft.maxCardWidth)}
+                  options={[
+                    ...new Set([120, 140, 160, 180, 200, 220, 240, 280, 300, draft.maxCardWidth]),
+                  ]
+                    .sort((a, b) => a - b)
+                    .map((width) => ({
+                      value: String(width),
+                      label: t("settings.pixelsValue", { count: width }),
+                    }))}
+                  onChange={(value) => updateDraft({ ...draft, maxCardWidth: Number(value) })}
+                  ariaLabel={t("settings.maxCardWidth")}
                 />
               </div>
             </section>

@@ -7,6 +7,9 @@ Use a disposable Windows profile/VM and a dedicated Steam test library. Never te
 - [ ] Switch All/Favorites/Active with overflowing, short and empty results in grid/list views;
   search, filters, action buttons and view toggles must retain the same horizontal position.
 - [ ] Settings Save, Cancel, Escape, backdrop; save denied; unusual imported durations/buffers.
+- [ ] Card limits: preview/save/cancel 4–24 columns and 120–300 px maximum width; maximize/restore
+  at 940/1920/3840 px without oversized cards or horizontal overflow. Text inputs remain selectable,
+  but dragging across cards/chrome must not select the interface or drag images.
 - [ ] Catalog cached/offline, initial empty cache, failed refresh, changing query/page while loading.
 - [ ] Launch 1/3 dummies; minimize each, restore through tray, close each; stop all; quit launcher.
 - [ ] Launch shortcut with app closed/open/minimized; confirm single instance and managed timer.

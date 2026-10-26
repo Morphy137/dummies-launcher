@@ -108,6 +108,9 @@ English/Spanish include native tray/notification copy. Technical backend diagnos
 remain English. Fluent dialogs manage modal focus; detail restores focus, Escape returns,
 Ctrl+K focuses library search, arrow keys navigate cards, and list view supports actions.
 Settings previews appearance; Save persists, Escape/backdrop cancels. Failed Save keeps the draft.
+The grid supports 4–24 columns and a configurable 120–300 px maximum card width (180 px by
+default); cards shrink in narrow windows and never expand beyond that cap on maximized screens.
+Application chrome, cards and images are not text-selectable/draggable; editable fields still allow selection.
 Update prompts wait for other dialogs to close and installation requires stopping active dummies.
 
 CSP allows only bundled scripts/fonts, Fluent inline styles, IPC and the explicit Steam/Discord

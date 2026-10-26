@@ -96,11 +96,22 @@ body {
 
 body {
   overflow: hidden;
+  user-select: none;
   color: var(--text-primary);
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text;
+}
+
+img {
+  -webkit-user-drag: none;
 }
 
 button,
@@ -459,7 +470,7 @@ button {
 
 .poster-grid {
   display: grid;
-  grid-template-columns: repeat(var(--cards-per-row, 6), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--cards-per-row, 6), minmax(0, var(--card-max-width, 180px)));
   gap: 20px 16px;
   padding-bottom: 8px;
 }
@@ -2017,7 +2028,6 @@ button {
   }
 
   .poster-grid {
-    grid-template-columns: repeat(var(--cards-per-row, 6), minmax(0, 1fr));
     gap: 16px 12px;
   }
 

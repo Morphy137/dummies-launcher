@@ -25,8 +25,11 @@ pub(crate) fn normalize_settings(mut settings: Settings) -> Settings {
     if !matches!(settings.language.as_str(), "en" | "es") {
         settings.language = "system".to_string();
     }
-    if !(4..=8).contains(&settings.cards_per_row) {
+    if !(4..=24).contains(&settings.cards_per_row) {
         settings.cards_per_row = 6;
+    }
+    if !(120..=300).contains(&settings.max_card_width) {
+        settings.max_card_width = 180;
     }
     if !(1..=120).contains(&settings.quest_duration_minutes) {
         settings.quest_duration_minutes = 15;

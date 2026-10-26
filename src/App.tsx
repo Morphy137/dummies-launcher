@@ -722,6 +722,7 @@ export default function App() {
               <PosterGrid
                 games={games}
                 cardsPerRow={settings.cardsPerRow}
+                maxCardWidth={settings.maxCardWidth}
                 canPause={settings.questTimerEnabled}
                 onOpenGame={openGame}
                 onToggleFavorite={handleToggleFavorite}
