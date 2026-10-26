@@ -113,8 +113,12 @@ Update prompts wait for other dialogs to close and installation requires stoppin
 CSP allows only bundled scripts/fonts, Fluent inline styles, IPC and the explicit Steam/Discord
 image hosts, plus blob/data images. No shell or unused opener plugin is exposed. Logs are enabled
 in release as well as development; avoid attaching them publicly without reviewing private paths.
-Cover Cache Storage is capped at 128 entries, expires after seven days, and inactive object URLs
-are revoked after 30 seconds. Failed candidates retry after a bounded session-memory TTL.
+Cover Cache Storage is capped at 128 entries and expires after seven days. A separate LRU
+memory cache keeps object URLs across filter changes, capped at 128 entries/32 MiB of blobs;
+mounted images are protected until released. Memory caching also works without disk storage.
+Missing HTTP images have a bounded retry cooldown, and successful fallback choices are retained
+for 30 minutes rather than probing missing alternatives on each remount. CORS-restricted hosts
+still have a direct-image fallback to the browser's HTTP cache.
 
 Dependency-license texts are collected into `DEPENDENCY_LICENSES.txt` during resource
 preparation and included with installer/portable packages. Missing texts are explicitly

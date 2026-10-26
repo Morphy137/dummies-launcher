@@ -66,12 +66,14 @@ export default function GameDetail({
     src: cachedCover,
     failed: coverFailed,
     handleError: handleCoverError,
+    handleLoad: handleCoverLoad,
   } = useCoverCandidates(candidates);
   const bannerCandidates = getGameBannerCandidates(game);
   const {
     src: banner,
     failed: bannerFailed,
     handleError: handleBannerError,
+    handleLoad: handleBannerLoad,
   } = useCoverCandidates(bannerCandidates);
   const fallback = getFallbackArt(game.name);
   const initials = getGameInitials(game.name);
@@ -138,13 +140,19 @@ export default function GameDetail({
         }
       >
         {banner && !bannerFailed ? (
-          <img className="detail__banner" src={banner} alt="" onError={handleBannerError} />
+          <img
+            className="detail__banner"
+            src={banner}
+            alt=""
+            onError={handleBannerError}
+            onLoad={handleBannerLoad}
+          />
         ) : null}
         <div className="detail__scrim" />
         <div className="detail__hero-content">
           <div className="detail__poster">
             {cachedCover && !coverFailed ? (
-              <img src={cachedCover} alt="" onError={handleCoverError} />
+              <img src={cachedCover} alt="" onError={handleCoverError} onLoad={handleCoverLoad} />
             ) : (
               <span className="poster-card__placeholder" aria-hidden="true">
                 <Image20Regular />

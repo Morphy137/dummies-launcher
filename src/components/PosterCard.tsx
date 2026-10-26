@@ -44,6 +44,7 @@ export default function PosterCard({
     src: cachedCover,
     failed: imageFailed,
     handleError: handleImageError,
+    handleLoad: handleImageLoad,
   } = useCoverCandidates(candidates);
   const fallback = getFallbackArt(game.name);
   const initials = getGameInitials(game.name);
@@ -65,6 +66,7 @@ export default function PosterCard({
             loading="lazy"
             decoding="async"
             onError={handleImageError}
+            onLoad={handleImageLoad}
           />
         ) : (
           <span className="poster-card__placeholder" aria-hidden="true">
