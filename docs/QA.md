@@ -11,6 +11,9 @@ Use a disposable Windows profile/VM and a dedicated Steam test library. Never te
   at 940/1920/3840 px without oversized cards or horizontal overflow. Text inputs remain selectable,
   but dragging across cards/chrome must not select the interface or drag images.
 - [ ] Catalog cached/offline, initial empty cache, failed refresh, changing query/page while loading.
+- [ ] Artwork: switch filters repeatedly after images load; reuse cached images without new downloads.
+  Verify high-resolution Steam posters/landscape banners, a missing-artwork fallback and offline cached
+  images. A non-Steam game must not enlarge its portrait/icon into the banner.
 - [ ] Launch 1/3 dummies; minimize each, restore through tray, close each; stop all; quit launcher.
 - [ ] Launch shortcut with app closed/open/minimized; confirm single instance and managed timer.
 - [ ] Crash launcher and confirm managed children terminate through EOF.

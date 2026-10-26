@@ -35,8 +35,8 @@ The subsequent backend-refactor commit separates the implementation without addi
 | Command/check | Result |
 | --- | --- |
 | `pnpm check` | Pass: Biome and TypeScript |
-| `pnpm test` | 43 tests pass (including the clock UI follow-up) |
-| `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 28 tests pass |
+| `pnpm test` | 61 tests pass (including artwork/cache and bounded-card settings) |
+| `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 29 tests pass |
 | `cargo test --locked --manifest-path crates/dummy-game/Cargo.toml` | 5 tests pass |
 | `cargo fmt --manifest-path <each Cargo.toml> -- --check` | Both pass |
 | `cargo clippy --locked --manifest-path <each Cargo.toml> --all-targets -- -D warnings` | Both pass |
@@ -74,6 +74,24 @@ so overflowing All results retain the existing Favorites/Active content width. B
 checks with isolated fixture data passed at 940/1100/1280 px in grid/list views, including empty
 results: search, filters, actions, view toggles and heading/content bounds remain identical
 across filters. `pnpm check` and all 43 frontend tests pass; Rust code is unchanged.
+
+### Artwork and sizing follow-up
+
+- Cache: replaced 30-second URL eviction with a bounded LRU (128 entries/32 MiB of blobs),
+  retained mounted images, added memory-only caching when disk storage is unavailable and
+  cooldowns for HTTP failures. Successful fallback choices survive filter remounts.
+- Appearance: 4–24 cards per row and a persisted 120–300 px width cap, defaulting to 180 px
+  for existing settings. UI text/images cannot be accidentally selected/dragged; text inputs remain editable/selectable.
+- Artwork: full-size Steam posters and real landscape hero banners, with no API key. Missing
+  hero artwork falls back to a gradient rather than a magnified portrait. This is not a universal
+  banner service for non-Steam games.
+- Browser checks with isolated fixture data: repeated filter changes kept the same blob URL
+  and the same three initial cover requests; a 600×900 poster and 3840×1240 hero loaded from
+  Steam. Settings changes were previewed/saved, the 160 px test cap held at 940/1920/3840 px
+  without horizontal overflow, and selection was disabled on cards but enabled in inputs.
+- Tests cover memory/disk caches, deduplication, LRU/reference protection, byte/entry limits,
+  expiry, HTTP cooldowns, stale hook results, candidate selection, artwork URLs and settings
+  normalization/defaults/save/preview. Both Rust suites and release/portable builds are revalidated.
 
 The current static-CRT dummy is 933,888 bytes (912 KiB). Private working set in the
 protocol smoke test: 3.6 MB initially hidden, 4.0 MB visible/hidden after showing.

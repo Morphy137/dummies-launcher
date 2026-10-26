@@ -11,7 +11,10 @@ export function getGameCoverCandidates(game: Game): string[] {
   const candidates: string[] = [];
   const steamId = String(game.steamAppId || "").trim();
 
-  if (steamId) {
+  if (/^\d+$/.test(steamId)) {
+    candidates.push(
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_600x900_2x.jpg`,
+    );
     candidates.push(
       `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_600x900.jpg`,
     );
@@ -32,19 +35,13 @@ export function getGameCoverCandidates(game: Game): string[] {
 }
 
 export function getGameBannerCandidates(game: Game): string[] {
-  const candidates: string[] = [];
   const steamId = String(game.steamAppId || "").trim();
-
-  if (steamId) {
-    candidates.push(
-      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_hero.jpg`,
-    );
-    candidates.push(
-      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/header.jpg`,
-    );
-  }
-
-  return [...new Set([...candidates, ...getGameCoverCandidates(game)])];
+  if (!/^\d+$/.test(steamId)) return [];
+  // Public Steam library artwork needs no API key. Do not stretch portrait/icon fallbacks.
+  return [
+    `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_hero_2x.jpg`,
+    `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_hero.jpg`,
+  ];
 }
 
 const fallbackPalettes: Array<[string, string]> = [

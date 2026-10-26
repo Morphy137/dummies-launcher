@@ -123,6 +123,14 @@ Missing HTTP images have a bounded retry cooldown, and successful fallback choic
 for 30 minutes rather than probing missing alternatives on each remount. CORS-restricted hosts
 still have a direct-image fallback to the browser's HTTP cache.
 
+Posters prefer Steam's `library_600x900_2x.jpg` (600×900 instead of the half-size capsule).
+Detail banners use only `library_hero_2x.jpg` / `library_hero.jpg`, not stretched portraits,
+icons or small store headers. These public CDN assets require no API key or paid service.
+Games without a numeric Steam App ID or published hero artwork keep the generated gradient;
+no title-based identity guesses are made. Artwork remains owned by its respective publishers.
+Steam's [library asset documentation](https://partner.steamgames.com/doc/store/assets/libraryassets)
+describes the capsule/hero formats. CDN availability is best-effort, not a guaranteed API contract.
+
 Dependency-license texts are collected into `DEPENDENCY_LICENSES.txt` during resource
 preparation and included with installer/portable packages. Missing texts are explicitly
 marked for review rather than assuming the short license identifier is sufficient.
