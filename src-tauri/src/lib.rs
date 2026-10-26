@@ -12,6 +12,7 @@ use std::fs;
 use std::sync::{Arc, Mutex, RwLock};
 use tauri::{Manager, RunEvent};
 
+mod artwork;
 mod bootstrap;
 mod catalog;
 mod commands;
@@ -91,6 +92,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::resolve_steam_artwork,
+            commands::resolve_steam_cover,
             commands::get_settings,
             commands::save_settings,
             commands::get_system_locale,

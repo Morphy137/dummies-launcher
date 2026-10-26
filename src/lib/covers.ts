@@ -35,13 +35,17 @@ export function getGameCoverCandidates(game: Game): string[] {
 }
 
 export function getGameBannerCandidates(game: Game): string[] {
+  const candidates: string[] = [];
   const steamId = String(game.steamAppId || "").trim();
-  if (!/^\d+$/.test(steamId)) return [];
-  // Public Steam library artwork needs no API key. Do not stretch portrait/icon fallbacks.
-  return [
-    `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_hero_2x.jpg`,
-    `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_hero.jpg`,
-  ];
+  if (/^\d+$/.test(steamId)) {
+    candidates.push(
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_hero_2x.jpg`,
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_hero.jpg`,
+      `https://cdn.akamai.steamstatic.com/steam/apps/${steamId}/header.jpg`,
+    );
+  }
+
+  return candidates;
 }
 
 const fallbackPalettes: Array<[string, string]> = [

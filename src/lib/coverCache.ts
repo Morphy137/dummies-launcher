@@ -49,6 +49,7 @@ async function loadCover(url: string): Promise<string> {
 
   let cache: Cache | undefined;
   let response: Response | undefined;
+  let staleResponse: Response | undefined;
   try {
     if (typeof caches !== "undefined") cache = await caches.open(CACHE_NAME);
     response = await cache?.match(url);
@@ -56,7 +57,7 @@ async function loadCover(url: string): Promise<string> {
       response &&
       Date.now() - Number(response.headers.get("x-dummies-cached-at") ?? 0) > MAX_AGE_MS
     ) {
-      await cache?.delete(url);
+      staleResponse = response;
       response = undefined;
     }
   } catch {
@@ -104,6 +105,13 @@ async function loadCover(url: string): Promise<string> {
     trimMemoryCache(url);
     return objectUrl;
   } catch (error: unknown) {
+    if (staleResponse) {
+      const blob = await staleResponse.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      objectUrls.set(url, { src: objectUrl, bytes: blob.size });
+      trimMemoryCache(url);
+      return objectUrl;
+    }
     if (error instanceof UnavailableCover) throw error;
     // Let the <img> element try the original URL. This preserves the old behavior
     // for CDNs that do not allow fetch/CORS or when storage is unavailable.

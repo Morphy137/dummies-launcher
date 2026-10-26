@@ -13,13 +13,10 @@ import {
 } from "@fluentui/react-icons";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  getFallbackArt,
-  getGameBannerCandidates,
-  getGameCoverCandidates,
-  getGameInitials,
-} from "../lib/covers";
+import { getFallbackArt, getGameInitials } from "../lib/covers";
 import { useCoverCandidates } from "../lib/useCoverCandidates";
+import { useGameBannerCandidates } from "../lib/useGameBannerCandidates";
+import { useGameCoverCandidates } from "../lib/useGameCoverCandidates";
 import type { Game } from "../types";
 import RetroClock from "./RetroClock";
 
@@ -61,14 +58,14 @@ export default function GameDetail({
     backRef.current?.focus();
   }, []);
 
-  const candidates = getGameCoverCandidates(game);
+  const candidates = useGameCoverCandidates(game);
   const {
     src: cachedCover,
     failed: coverFailed,
     handleError: handleCoverError,
     handleLoad: handleCoverLoad,
   } = useCoverCandidates(candidates);
-  const bannerCandidates = getGameBannerCandidates(game);
+  const bannerCandidates = useGameBannerCandidates(game);
   const {
     src: banner,
     failed: bannerFailed,

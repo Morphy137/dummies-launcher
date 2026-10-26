@@ -22,23 +22,24 @@ describe("game artwork", () => {
     expect(candidates[1]).toContain("/730/library_600x900.jpg");
   });
 
-  it("uses only landscape hero images for detail banners", () => {
+  it("prefers Steam heroes, then the landscape header", () => {
     const candidates = getGameBannerCandidates(game);
-    expect(candidates).toHaveLength(2);
+    expect(candidates).toHaveLength(3);
     expect(candidates[0]).toContain("/730/library_hero_2x.jpg");
     expect(candidates[1]).toContain("/730/library_hero.jpg");
-    expect(
-      candidates.every(
-        (url) =>
-          !url.includes("app-icons") && !url.includes("600x900") && !url.includes("header.jpg"),
-      ),
-    ).toBe(true);
+    expect(candidates[2]).toContain("/730/header.jpg");
   });
 
   it.each([null, "", "../730", "730?key=example"])(
-    "does not invent a blurred banner for unavailable Steam metadata: %s",
+    "uses no banner when Steam metadata is absent or invalid: %s",
     (steamAppId) => {
       expect(getGameBannerCandidates({ ...game, steamAppId })).toEqual([]);
     },
   );
+
+  it("does not enlarge a small icon into a banner when no cover is available", () => {
+    expect(getGameBannerCandidates({ ...game, steamAppId: null, coverImageHash: null })).toEqual(
+      [],
+    );
+  });
 });

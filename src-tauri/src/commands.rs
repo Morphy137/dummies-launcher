@@ -8,6 +8,22 @@ use crate::state::AppState;
 use crate::{bootstrap, catalog, library, processes, settings, shortcuts, steam, timers};
 use tauri::{AppHandle, State};
 
+#[tauri::command(async)]
+pub(crate) fn resolve_steam_cover(
+    name: String,
+    steam_app_id: Option<String>,
+) -> Result<Vec<String>, String> {
+    crate::artwork::resolve_steam_cover(name, steam_app_id)
+}
+
+#[tauri::command(async)]
+pub(crate) fn resolve_steam_artwork(
+    name: String,
+    steam_app_id: Option<String>,
+) -> Result<Vec<String>, String> {
+    crate::artwork::resolve_steam_artwork(name, steam_app_id)
+}
+
 #[tauri::command]
 pub(crate) fn get_settings(state: State<AppState>) -> Result<Settings, String> {
     settings::get_settings(state.inner())

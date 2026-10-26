@@ -99,6 +99,24 @@ describe("cover cache", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it("uses an expired persistent image when the network is unavailable", async () => {
+    const { entries } = mockStorage();
+    entries.set(
+      "https://example.test/offline.png",
+      new Response("old", {
+        headers: {
+          "content-type": "image/png",
+          "x-dummies-cached-at": String(Date.now() - 8 * 24 * 60 * 60_000),
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:offline");
+    const { getCoverUrl } = await import("./coverCache");
+    await expect(getCoverUrl("https://example.test/offline.png")).resolves.toBe("blob:offline");
+    expect(entries.has("https://example.test/offline.png")).toBe(true);
+  });
+
   it("evicts least-recently-used idle images without revoking a mounted image", async () => {
     vi.stubGlobal("caches", undefined);
     vi.stubGlobal(

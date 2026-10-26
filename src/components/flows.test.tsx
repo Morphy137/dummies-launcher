@@ -24,6 +24,8 @@ vi.mock("react-i18next", async (importOriginal) => ({
   }),
 }));
 vi.mock("../lib/backend", () => ({
+  resolveSteamArtwork: vi.fn().mockResolvedValue([]),
+  resolveSteamCover: vi.fn().mockResolvedValue([]),
   getDatabasePage: vi.fn(),
   syncGamelist: vi.fn(),
   getSteamLibraries: vi.fn(),

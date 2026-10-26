@@ -10,6 +10,18 @@ beforeEach(() => {
 });
 
 describe("backend IPC contract", () => {
+  it("looks up artwork without changing the game's Steam integration", async () => {
+    await backend.resolveSteamArtwork("ARKNIGHTS: ENDFIELD");
+    expect(invoke).toHaveBeenLastCalledWith("resolve_steam_artwork", {
+      name: "ARKNIGHTS: ENDFIELD",
+      steamAppId: null,
+    });
+    await backend.resolveSteamArtwork("Aniimo", "4126040");
+    expect(invoke).toHaveBeenLastCalledWith("resolve_steam_artwork", {
+      name: "Aniimo",
+      steamAppId: "4126040",
+    });
+  });
   it.each([
     ["get_bootstrap", () => backend.getBootstrap()],
     ["get_library", () => backend.getLibrary()],

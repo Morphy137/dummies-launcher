@@ -41,6 +41,21 @@ export async function saveSettings(settings: Settings): Promise<Settings> {
 }
 
 let catalogRequest: Promise<SyncResult> | undefined;
+export async function resolveSteamCover(
+  name: string,
+  steamAppId?: string | null,
+): Promise<string[]> {
+  if (!isTauri()) return [];
+  return invoke<string[]>("resolve_steam_cover", { name, steamAppId: steamAppId ?? null });
+}
+export async function resolveSteamArtwork(
+  name: string,
+  steamAppId?: string | null,
+): Promise<string[]> {
+  if (!isTauri()) return [];
+  return invoke<string[]>("resolve_steam_artwork", { name, steamAppId: steamAppId ?? null });
+}
+
 export async function syncGamelist(): Promise<SyncResult> {
   if (!isTauri()) {
     return { updated: false, count: 0, path: "" };

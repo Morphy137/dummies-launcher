@@ -113,21 +113,26 @@ default); cards shrink in narrow windows and never expand beyond that cap on max
 Application chrome, cards and images are not text-selectable/draggable; editable fields still allow selection.
 Update prompts wait for other dialogs to close and installation requires stopping active dummies.
 
-CSP allows only bundled scripts/fonts, Fluent inline styles, IPC and the explicit Steam/Discord
+CSP allows only bundled scripts/fonts, Fluent inline styles, IPC and the explicit Steam/Discord/Epic
 image hosts, plus blob/data images. No shell or unused opener plugin is exposed. Logs are enabled
 in release as well as development; avoid attaching them publicly without reviewing private paths.
 Cover Cache Storage is capped at 128 entries and expires after seven days. A separate LRU
 memory cache keeps object URLs across filter changes, capped at 128 entries/32 MiB of blobs;
 mounted images are protected until released. Memory caching also works without disk storage.
+Cover and banner lookup results are stored locally for seven days (up to 512 entries), so
+reopening a screen or restarting the app does not repeat a successful catalog lookup. Expired
+images and lookup results remain usable if a refresh fails while offline.
 Missing HTTP images have a bounded retry cooldown, and successful fallback choices are retained
 for 30 minutes rather than probing missing alternatives on each remount. CORS-restricted hosts
 still have a direct-image fallback to the browser's HTTP cache.
 
-Posters prefer Steam's `library_600x900_2x.jpg` (600×900 instead of the half-size capsule).
-Detail banners use only `library_hero_2x.jpg` / `library_hero.jpg`, not stretched portraits,
-icons or small store headers. These public CDN assets require no API key or paid service.
-Games without a numeric Steam App ID or published hero artwork keep the generated gradient;
-no title-based identity guesses are made. Artwork remains owned by its respective publishers.
+Posters prefer Steam's full-size library capsule, including current hashed asset paths. Steam
+games can be matched by name when the library has no Steam App ID; lookups are concurrency-limited
+and cached in memory. Fallback images preserve their aspect ratio within the 2:3 card.
+Detail banners use Steam artwork found by App ID or an unambiguous title match, with wide Epic
+Games Store artwork from the public egdata catalog as another candidate. If no image is found,
+the generated gradient is used instead of stretching a portrait. Artwork lookup does not change
+launch integration and requires no API key. Artwork remains owned by its respective publishers.
 Steam's [library asset documentation](https://partner.steamgames.com/doc/store/assets/libraryassets)
 describes the capsule/hero formats. CDN availability is best-effort, not a guaranteed API contract.
 

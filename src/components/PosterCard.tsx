@@ -9,8 +9,9 @@ import {
 } from "@fluentui/react-icons";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { getFallbackArt, getGameCoverCandidates, getGameInitials } from "../lib/covers";
+import { getFallbackArt, getGameInitials } from "../lib/covers";
 import { useCoverCandidates } from "../lib/useCoverCandidates";
+import { useGameCoverCandidates } from "../lib/useGameCoverCandidates";
 import type { Game } from "../types";
 import RetroClock from "./RetroClock";
 
@@ -39,7 +40,7 @@ export default function PosterCard({
   onTogglePause,
 }: PosterCardProps) {
   const { t } = useTranslation();
-  const candidates = getGameCoverCandidates(game);
+  const candidates = useGameCoverCandidates(game);
   const {
     src: cachedCover,
     failed: imageFailed,
