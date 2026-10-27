@@ -21,12 +21,16 @@ concurrency:
 jobs:
   checks:
     uses: ./.github/workflows/checks.yml
+    with:
+      checkout_ref: ${{ inputs.tag || github.ref }}
   windows:
     needs: checks
     runs-on: windows-latest
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      - name: Preserve LF line endings
+        run: git config --global core.autocrlf false
       - name: Checkout release tag
         uses: actions/checkout@v4
         with:
