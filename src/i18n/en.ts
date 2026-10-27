@@ -7,6 +7,7 @@ export default {
     close: "Close",
     save: "Save changes",
     dismiss: "Dismiss",
+    retry: "Retry",
   },
   catalog: {
     title: "Add game",
@@ -16,6 +17,11 @@ export default {
     empty: "No games found.",
     loadMore: "Load more",
     loading: "Loading…",
+    refresh: "Refresh catalog",
+    previous: "Previous",
+    next: "Next",
+    offline: "Could not refresh. The cached catalog is still available.",
+    noCache: "No cached catalog. Refresh when connected to the internet.",
   },
   titlebar: {
     minimize: "Minimize",
@@ -35,12 +41,22 @@ export default {
     emptyTitle: "Nothing here yet",
     emptyBody: "Add a game from the catalog to start a lightweight presence session.",
     emptyAction: "Add your first game",
+    noMatches: "No matching games",
+    noMatchesBody: "Try another search or clear the filters.",
+    clearFilters: "Clear filters",
+    viewMode: "View mode",
+    grid: "Grid",
+    list: "List",
   },
   game: {
     play: "Launch game",
     stop: "Stop",
-    pause: "Pause",
-    resume: "Resume",
+    pause: "Pause timer",
+    resume: "Resume timer",
+    paused: "Timer paused",
+    timerProgress: "Local timer progress",
+    localTimer:
+      "Local estimate only, including the sync buffer. Pausing does not pause Discord presence or verify quest progress.",
     favorite: "Add to favorites",
     unfavorite: "Remove from favorites",
     more: "More actions",
@@ -82,8 +98,12 @@ export default {
     languageEnglish: "English",
     languageSpanish: "Español",
     cardsPerRow: "Cards per row",
-    cardsPerRowDesc: "Choose how many posters fit horizontally.",
+    cardsPerRowDesc: "Maximum number of posters per row (4–24). Fewer fit in narrow windows.",
     cardsPerRowValue: "{{count}} cards",
+    maxCardWidth: "Maximum card width",
+    maxCardWidthDesc:
+      "Limit poster size in pixels, including when maximized. Cards can shrink to fit.",
+    pixelsValue: "{{count}} px",
     questAutomation: "Quest automation",
     questTimer: "Quest countdown timer",
     questTimerDesc: "Show a live countdown while a dummy is running.",
@@ -111,7 +131,7 @@ export default {
       "Keep a visible native window for the dummy. Discord may not detect the game if this is off.",
     minimizeToTray: "Hide dummy when minimized",
     minimizeToTrayDesc: "Hide the dummy window instead of keeping it in the taskbar.",
-    note: "Settings are saved locally and applied immediately.",
+    note: "Appearance previews immediately. Save changes to keep them; process and timer settings apply to newly launched dummies. Escape or clicking outside cancels.",
   },
   notices: {
     launchFailed: "Could not launch the dummy.",
@@ -135,6 +155,9 @@ export default {
     failed: "The update could not be installed.",
     checkFailed: "Could not check for updates.",
     availableShort: "An update is available.",
+    portable:
+      "Portable copies are updated manually. Download the latest ZIP from the releases page on GitHub.",
+    stopFirst: "Stop all active dummies before installing an update. Installation closes Dummies.",
   },
   steam: {
     title: "Steam integration",
@@ -147,8 +170,42 @@ export default {
     install: "Install to Steam",
     update: "Update manifest",
     remove: "Remove from Steam",
+    safeChanges:
+      "Use a dedicated, new folder. Existing installations are never overwritten. Remove the integration before changing its paths. Close Steam before making changes.",
+    stopFirst: "Stop this dummy before changing Steam integration.",
+    confirmRemove:
+      "Remove only the verified Dummies manifest and executable? Unrelated files will be kept.",
+    confirmRemoveAction: "Confirm removal",
+    removeBeforeDelete: "Remove Steam integration before deleting this library entry.",
+    folderPlaceholder: "Dedicated dummy folder",
+    recoveryNote:
+      "Close Steam and back up Dummies files before removing them. Do not move files from actual games.",
+    files: "Integration files",
+    manifestFile: "Manifest",
+    dummyFile: "Configured executable",
+    openManifestFolder: "Open manifest folder",
+    openDummyFolder: "Open executable folder",
+    openFolder: "Open folder",
   },
   search: {
     shortcut: "Ctrl K",
+  },
+  errors: {
+    ownership:
+      "These files could not be verified as unchanged Dummies files. Nothing was deleted. Inspect the integration manually and keep a backup.",
+    stopFirst: "Stop the active dummy before changing this configuration.",
+    removeSteam: "Remove the Steam integration before changing paths or deleting this entry.",
+    conflict:
+      "That file, folder or library entry already exists. Choose a new dedicated destination; existing data was preserved.",
+    data: "Saved data could not be read. Close Dummies and inspect or restore the affected .json.bak file in AppData. Existing data was preserved.",
+    path: "The path or identifier is not valid. Use a numeric Steam ID and relative executable path without traversal or links.",
+    permission:
+      "Access was denied. Close Steam or the running dummy and check folder permissions, then try again.",
+    missing:
+      "A required game, dummy or Steam library was not found. Check its configuration and restore missing files before retrying.",
+    network:
+      "The service could not be reached. Check your connection and try again; cached data remains available.",
+    generic:
+      "The operation failed. Check the configuration and permissions, then retry. Technical details are available in the diagnostic console.",
   },
 };

@@ -69,7 +69,7 @@ $privateCommit = ($rows | Measure-Object PrivateCommitMB -Sum).Sum
 $workingSet = ($rows | Measure-Object WorkingSetMB -Sum).Sum
 
 Write-Output ""
-Write-Output ("Processes: {0}" -f $rows.Count)
+Write-Output ("Processes: {0}" -f @($rows).Count)
 Write-Output ("Private working set (Task Manager-style): {0:N1} MB" -f $privateWorkingSet)
 Write-Output ("Private commit: {0:N1} MB" -f $privateCommit)
 Write-Output ("Total working set (includes shared pages): {0:N1} MB" -f $workingSet)

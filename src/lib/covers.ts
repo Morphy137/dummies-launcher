@@ -11,7 +11,10 @@ export function getGameCoverCandidates(game: Game): string[] {
   const candidates: string[] = [];
   const steamId = String(game.steamAppId || "").trim();
 
-  if (steamId) {
+  if (/^\d+$/.test(steamId)) {
+    candidates.push(
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_600x900_2x.jpg`,
+    );
     candidates.push(
       `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_600x900.jpg`,
     );
@@ -34,17 +37,15 @@ export function getGameCoverCandidates(game: Game): string[] {
 export function getGameBannerCandidates(game: Game): string[] {
   const candidates: string[] = [];
   const steamId = String(game.steamAppId || "").trim();
-
-  if (steamId) {
+  if (/^\d+$/.test(steamId)) {
     candidates.push(
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_hero_2x.jpg`,
       `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/library_hero.jpg`,
-    );
-    candidates.push(
-      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/header.jpg`,
+      `https://cdn.akamai.steamstatic.com/steam/apps/${steamId}/header.jpg`,
     );
   }
 
-  return [...new Set([...candidates, ...getGameCoverCandidates(game)])];
+  return candidates;
 }
 
 const fallbackPalettes: Array<[string, string]> = [

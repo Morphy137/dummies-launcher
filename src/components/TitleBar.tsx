@@ -8,6 +8,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { disposeSubscription } from "../lib/subscription";
 
 export default function TitleBar() {
   const { t } = useTranslation();
@@ -17,7 +18,6 @@ export default function TitleBar() {
   useEffect(() => {
     if (!appWindow) return;
 
-    let unlisten: (() => void) | undefined;
     const syncMaximized = () => {
       void appWindow
         .isMaximized()
@@ -26,14 +26,7 @@ export default function TitleBar() {
     };
 
     syncMaximized();
-    void appWindow
-      .onResized(syncMaximized)
-      .then((fn) => {
-        unlisten = fn;
-      })
-      .catch(() => {});
-
-    return () => unlisten?.();
+    return disposeSubscription(appWindow.onResized(syncMaximized));
   }, [appWindow]);
 
   const toggleMaximize = () => {
@@ -42,8 +35,7 @@ export default function TitleBar() {
 
   return (
     <header className="title-bar">
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: the drag region mirrors the native title bar double-click behavior. */}
-      <div className="title-bar__drag" data-tauri-drag-region onDoubleClick={toggleMaximize}>
+      <div className="title-bar__drag" data-tauri-drag-region>
         <span className="app-mark" data-tauri-drag-region aria-hidden="true">
           <img src="/app-icon.svg" alt="" />
         </span>

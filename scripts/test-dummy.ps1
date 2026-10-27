@@ -3,6 +3,8 @@ param(
   [switch]$Visible
 )
 
+$ErrorActionPreference = "Stop"
+
 $root = Split-Path -Parent $PSScriptRoot
 $dummy = Join-Path $root "crates\dummy-game\target\release\dummy-game.exe"
 $measure = Join-Path $PSScriptRoot "measure-memory.ps1"
@@ -17,13 +19,17 @@ $startInfo.FileName = $dummy
 $startInfo.UseShellExecute = $false
 $startInfo.CreateNoWindow = $true
 $startInfo.RedirectStandardInput = $true
-$startInfo.Arguments = "`"$DisplayName`""
+$startInfo.Arguments = "`"$DisplayName`" --managed"
 if ($Visible) {
   $startInfo.Arguments += " --window"
+} else {
+  $startInfo.Arguments += " --hidden"
 }
 
 $process = [System.Diagnostics.Process]::Start($startInfo)
+try {
 Start-Sleep -Seconds 1
+if ($process.HasExited) { throw "Managed dummy exited before receiving a command." }
 
 Write-Output "=== Initial state ==="
 powershell -ExecutionPolicy Bypass -File $measure -RootProcessId $process.Id
@@ -36,6 +42,7 @@ Start-Sleep -Seconds 1
 $process.Refresh()
 Write-Output ("Title: {0}" -f $process.MainWindowTitle)
 Write-Output ("HWND: {0}" -f $process.MainWindowHandle)
+if ($process.MainWindowHandle -eq 0) { throw "SHOW did not restore the dummy window." }
 powershell -ExecutionPolicy Bypass -File $measure -RootProcessId $process.Id
 
 Write-Output ""
@@ -43,6 +50,8 @@ Write-Output "=== HIDE ==="
 $process.StandardInput.WriteLine("HIDE")
 $process.StandardInput.Flush()
 Start-Sleep -Milliseconds 500
+$process.Refresh()
+if ($process.MainWindowHandle -ne 0) { throw "HIDE did not hide the dummy window." }
 powershell -ExecutionPolicy Bypass -File $measure -RootProcessId $process.Id
 
 Write-Output ""
@@ -51,9 +60,12 @@ $process.StandardInput.WriteLine("QUIT")
 $process.StandardInput.Flush()
 
 if (-not $process.WaitForExit(5000)) {
-  Write-Warning "Dummy did not exit in time; terminating it."
-  $process.Kill()
-  $process.WaitForExit()
+  throw "Dummy did not exit after QUIT."
 }
 
 Write-Output ("Exit code: {0}" -f $process.ExitCode)
+if ($process.ExitCode -ne 0) { throw "Dummy exited with a failure status." }
+} finally {
+  if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+  $process.Dispose()
+}

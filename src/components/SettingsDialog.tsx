@@ -10,12 +10,14 @@ import {
 } from "@fluentui/react-components";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatError } from "../lib/errors";
 import type { LanguageMode, Settings, ThemeMode } from "../types";
 
 interface SettingsDialogProps {
   open: boolean;
   settings: Settings;
   version: string;
+  portable: boolean;
   onPreview: (settings: Settings) => void;
   onCancel: () => void;
   onDismiss: () => void;
@@ -99,6 +101,7 @@ export default function SettingsDialog({
   open,
   settings,
   version,
+  portable,
   onPreview,
   onCancel,
   onDismiss,
@@ -137,7 +140,7 @@ export default function SettingsDialog({
     try {
       setUpdateStatus(await onCheckForUpdates());
     } catch (error: unknown) {
-      setUpdateError(error instanceof Error ? error.message : String(error));
+      setUpdateError(formatError(error));
     } finally {
       setCheckingUpdates(false);
     }
@@ -148,6 +151,7 @@ export default function SettingsDialog({
       open={open}
       onOpenChange={(_, data) => {
         if (data.open) return;
+        if (saving) return;
         if (data.type === "backdropClick" || data.type === "escapeKeyDown") {
           onDismiss();
         }
@@ -199,12 +203,32 @@ export default function SettingsDialog({
                 </span>
                 <SettingsDropdown
                   value={String(draft.cardsPerRow)}
-                  options={[4, 5, 6, 7, 8].map((count) => ({
+                  options={Array.from({ length: 21 }, (_, index) => index + 4).map((count) => ({
                     value: String(count),
                     label: t("settings.cardsPerRowValue", { count }),
                   }))}
                   onChange={(value) => updateDraft({ ...draft, cardsPerRow: Number(value) })}
                   ariaLabel={t("settings.cardsPerRow")}
+                />
+              </div>
+
+              <div className="settings-row">
+                <span className="settings-row__text">
+                  <span className="settings-row__label">{t("settings.maxCardWidth")}</span>
+                  <span className="settings-row__desc">{t("settings.maxCardWidthDesc")}</span>
+                </span>
+                <SettingsDropdown
+                  value={String(draft.maxCardWidth)}
+                  options={[
+                    ...new Set([120, 140, 160, 180, 200, 220, 240, 280, 300, draft.maxCardWidth]),
+                  ]
+                    .sort((a, b) => a - b)
+                    .map((width) => ({
+                      value: String(width),
+                      label: t("settings.pixelsValue", { count: width }),
+                    }))}
+                  onChange={(value) => updateDraft({ ...draft, maxCardWidth: Number(value) })}
+                  ariaLabel={t("settings.maxCardWidth")}
                 />
               </div>
             </section>
@@ -226,10 +250,12 @@ export default function SettingsDialog({
                 </span>
                 <SettingsDropdown
                   value={String(draft.questDurationMinutes)}
-                  options={[10, 15, 20, 30].map((minutes) => ({
-                    value: String(minutes),
-                    label: t("settings.minutesValue", { count: minutes }),
-                  }))}
+                  options={[...new Set([10, 15, 20, 30, draft.questDurationMinutes])]
+                    .sort((a, b) => a - b)
+                    .map((minutes) => ({
+                      value: String(minutes),
+                      label: t("settings.minutesValue", { count: minutes }),
+                    }))}
                   onChange={(value) =>
                     updateDraft({
                       ...draft,
@@ -248,13 +274,15 @@ export default function SettingsDialog({
                 </span>
                 <SettingsDropdown
                   value={String(draft.questSyncBufferSeconds)}
-                  options={[0, 30, 60, 90].map((seconds) => ({
-                    value: String(seconds),
-                    label:
-                      seconds === 0
-                        ? t("settings.off")
-                        : t("settings.secondsValue", { count: seconds }),
-                  }))}
+                  options={[...new Set([0, 30, 60, 90, draft.questSyncBufferSeconds])]
+                    .sort((a, b) => a - b)
+                    .map((seconds) => ({
+                      value: String(seconds),
+                      label:
+                        seconds === 0
+                          ? t("settings.off")
+                          : t("settings.secondsValue", { count: seconds }),
+                    }))}
                   onChange={(value) =>
                     updateDraft({
                       ...draft,
@@ -311,12 +339,13 @@ export default function SettingsDialog({
                   type="button"
                   className="secondary-button"
                   onClick={() => void handleCheckUpdates()}
-                  disabled={checkingUpdates}
+                  disabled={checkingUpdates || portable}
                 >
                   {checkingUpdates ? t("settings.checking") : t("settings.checkUpdates")}
                 </button>
               </div>
 
+              {portable ? <p>{t("updates.portable")}</p> : null}
               {updateStatus ? (
                 <div className="settings-update-status">
                   <span>

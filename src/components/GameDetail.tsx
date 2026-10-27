@@ -13,13 +13,10 @@ import {
 } from "@fluentui/react-icons";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  getFallbackArt,
-  getGameBannerCandidates,
-  getGameCoverCandidates,
-  getGameInitials,
-} from "../lib/covers";
+import { getFallbackArt, getGameInitials } from "../lib/covers";
 import { useCoverCandidates } from "../lib/useCoverCandidates";
+import { useGameBannerCandidates } from "../lib/useGameBannerCandidates";
+import { useGameCoverCandidates } from "../lib/useGameCoverCandidates";
 import type { Game } from "../types";
 import RetroClock from "./RetroClock";
 
@@ -56,18 +53,24 @@ export default function GameDetail({
   const exeInputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const backRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    backRef.current?.focus();
+  }, []);
 
-  const candidates = getGameCoverCandidates(game);
+  const candidates = useGameCoverCandidates(game);
   const {
     src: cachedCover,
     failed: coverFailed,
     handleError: handleCoverError,
+    handleLoad: handleCoverLoad,
   } = useCoverCandidates(candidates);
-  const bannerCandidates = getGameBannerCandidates(game);
+  const bannerCandidates = useGameBannerCandidates(game);
   const {
     src: banner,
     failed: bannerFailed,
     handleError: handleBannerError,
+    handleLoad: handleBannerLoad,
   } = useCoverCandidates(bannerCandidates);
   const fallback = getFallbackArt(game.name);
   const initials = getGameInitials(game.name);
@@ -106,6 +109,7 @@ export default function GameDetail({
   };
 
   const deleteGame = async () => {
+    if (game.running || game.useSteamPath) return;
     setDeleting(true);
     try {
       await onDelete(game);
@@ -118,7 +122,7 @@ export default function GameDetail({
 
   return (
     <div className="detail">
-      <button type="button" className="detail__back" onClick={onBack}>
+      <button ref={backRef} type="button" className="detail__back" onClick={onBack}>
         <ArrowLeft20Regular />
         {t("detail.back")}
       </button>
@@ -133,13 +137,19 @@ export default function GameDetail({
         }
       >
         {banner && !bannerFailed ? (
-          <img className="detail__banner" src={banner} alt="" onError={handleBannerError} />
+          <img
+            className="detail__banner"
+            src={banner}
+            alt=""
+            onError={handleBannerError}
+            onLoad={handleBannerLoad}
+          />
         ) : null}
         <div className="detail__scrim" />
         <div className="detail__hero-content">
           <div className="detail__poster">
             {cachedCover && !coverFailed ? (
-              <img src={cachedCover} alt="" onError={handleCoverError} />
+              <img src={cachedCover} alt="" onError={handleCoverError} onLoad={handleCoverLoad} />
             ) : (
               <span className="poster-card__placeholder" aria-hidden="true">
                 <Image20Regular />
@@ -169,7 +179,7 @@ export default function GameDetail({
                 {game.running ? <Stop20Filled /> : <Play20Filled />}
                 {game.running ? t("game.stop") : t("game.play")}
               </button>
-              {game.running && canPause ? (
+              {game.running && canPause && game.phase && game.phase !== "complete" ? (
                 <button
                   type="button"
                   className="secondary-button detail__pause"
@@ -207,6 +217,7 @@ export default function GameDetail({
           {editingExe ? (
             <div className="detail__exe-edit">
               <input
+                aria-label={t("detail.executable")}
                 ref={exeInputRef}
                 className="detail__input"
                 value={exeDraft}
@@ -235,7 +246,7 @@ export default function GameDetail({
                 type="button"
                 className="icon-button icon-button--small"
                 onClick={startEditingExe}
-                disabled={game.running}
+                disabled={game.running || game.useSteamPath}
                 aria-label={t("detail.editExe")}
                 title={t("detail.editExe")}
               >
@@ -285,6 +296,7 @@ export default function GameDetail({
         </div>
 
         <div className="detail__danger">
+          {game.useSteamPath ? <p>{t("steam.removeBeforeDelete")}</p> : null}
           {confirmDelete ? (
             <div className="detail__confirm">
               <span>{t("detail.confirmDelete", { name: game.name })}</span>
@@ -292,7 +304,7 @@ export default function GameDetail({
                 type="button"
                 className="secondary-button detail__danger-button"
                 onClick={() => void deleteGame()}
-                disabled={deleting}
+                disabled={deleting || game.running || game.useSteamPath}
               >
                 {deleting ? t("detail.deleting") : t("detail.delete")}
               </button>
@@ -310,7 +322,7 @@ export default function GameDetail({
               type="button"
               className="secondary-button detail__danger-button"
               onClick={() => setConfirmDelete(true)}
-              disabled={game.running}
+              disabled={game.running || game.useSteamPath}
             >
               <Delete20Regular />
               {t("detail.delete")}

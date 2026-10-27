@@ -36,6 +36,7 @@ recognizes. Stop it whenever you want.
 - No game installation required.
 - Covers, favorites and filters stay ready between sessions.
 - Automatic updates from version 1.0.2 onward.
+- Portable ZIPs update manually; installed copies use signed updates.
 - Runs on Windows 10 and 11.
 
 ## Add any detectable game
@@ -102,6 +103,16 @@ English and Spanish. Game covers come from Steam and Discord. Your game installa
 and account are not modified.
 
 Dummies is an independent project and is not affiliated with Discord.
+
+Steam integration requires a new dedicated dummy folder and never overwrites existing
+installations. Close Steam before changing it. Removal verifies ownership and retains
+unrelated files. Older integrations without ownership metadata need manual inspection;
+see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The quest timer is only a local estimate,
+not confirmation of progress. Pausing it does not pause Discord presence.
+
+Minimize a dummy to hide it; restore it from the running-game submenu on the app's tray
+icon. Closing a dummy stops it. Minimize Dummies to keep it in the tray; closing Dummies
+stops all managed dummies. Shortcuts launch through Dummies for lifecycle management.
 
 ## Development
 

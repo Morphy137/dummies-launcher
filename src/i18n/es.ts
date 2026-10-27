@@ -7,6 +7,7 @@ export default {
     close: "Cerrar",
     save: "Guardar cambios",
     dismiss: "Cerrar",
+    retry: "Reintentar",
   },
   catalog: {
     title: "Añadir juego",
@@ -16,6 +17,11 @@ export default {
     empty: "No se encontraron juegos.",
     loadMore: "Cargar más",
     loading: "Cargando…",
+    refresh: "Actualizar catálogo",
+    previous: "Anterior",
+    next: "Siguiente",
+    offline: "No se pudo actualizar. El catálogo en caché sigue disponible.",
+    noCache: "No hay catálogo en caché. Actualízalo cuando tengas conexión a internet.",
   },
   titlebar: {
     minimize: "Minimizar",
@@ -35,12 +41,22 @@ export default {
     emptyTitle: "Aún no hay nada aquí",
     emptyBody: "Añade un juego del catálogo para iniciar una sesión ligera de presencia.",
     emptyAction: "Añade tu primer juego",
+    noMatches: "No hay juegos coincidentes",
+    noMatchesBody: "Prueba otra búsqueda o quita los filtros.",
+    clearFilters: "Quitar filtros",
+    viewMode: "Modo de vista",
+    grid: "Cuadrícula",
+    list: "Lista",
   },
   game: {
     play: "Iniciar juego",
     stop: "Detener",
-    pause: "Pausar",
-    resume: "Reanudar",
+    pause: "Pausar temporizador",
+    resume: "Reanudar temporizador",
+    paused: "Temporizador pausado",
+    timerProgress: "Progreso del temporizador local",
+    localTimer:
+      "Estimación local que incluye el buffer. Pausar no pausa la presencia en Discord ni verifica el progreso de la quest.",
     favorite: "Añadir a favoritos",
     unfavorite: "Quitar de favoritos",
     more: "Más acciones",
@@ -82,8 +98,12 @@ export default {
     languageEnglish: "English",
     languageSpanish: "Español",
     cardsPerRow: "Tarjetas por fila",
-    cardsPerRowDesc: "Elige cuántas portadas caben horizontalmente.",
+    cardsPerRowDesc: "Máximo de portadas por fila (4–24). En ventanas estrechas caben menos.",
     cardsPerRowValue: "{{count}} tarjetas",
+    maxCardWidth: "Ancho máximo de las tarjetas",
+    maxCardWidthDesc:
+      "Limita el tamaño de las portadas en píxeles, incluso al maximizar. Se reducen si falta espacio.",
+    pixelsValue: "{{count}} px",
     questAutomation: "Automatización de quests",
     questTimer: "Temporizador de quest",
     questTimerDesc: "Muestra una cuenta atrás mientras el dummy está activo.",
@@ -111,7 +131,7 @@ export default {
       "Mantén una ventana nativa visible para el dummy. Discord podría no detectar el juego si está desactivado.",
     minimizeToTray: "Ocultar dummy al minimizar",
     minimizeToTrayDesc: "Oculta la ventana del dummy en vez de dejarla en la barra de tareas.",
-    note: "Los ajustes se guardan localmente y se aplican al instante.",
+    note: "La apariencia se previsualiza al instante. Guarda para conservar los cambios; los ajustes de proceso y temporizador se aplican a nuevos dummies. Escape o pulsar fuera cancela.",
   },
   notices: {
     launchFailed: "No se pudo iniciar el dummy.",
@@ -135,6 +155,10 @@ export default {
     failed: "No se pudo instalar la actualización.",
     checkFailed: "No se pudieron buscar actualizaciones.",
     availableShort: "Hay una actualización disponible.",
+    portable:
+      "Las copias portables se actualizan manualmente. Descarga el último ZIP desde la página de releases de GitHub.",
+    stopFirst:
+      "Detén todos los dummies antes de instalar una actualización. La instalación cierra Dummies.",
   },
   steam: {
     title: "Integración con Steam",
@@ -147,8 +171,43 @@ export default {
     install: "Instalar en Steam",
     update: "Actualizar manifiesto",
     remove: "Quitar de Steam",
+    safeChanges:
+      "Usa una carpeta nueva y dedicada. No se sobrescriben instalaciones existentes. Quita la integración antes de cambiar sus rutas. Cierra Steam antes de hacer cambios.",
+    stopFirst: "Detén este dummy antes de modificar su integración con Steam.",
+    confirmRemove:
+      "¿Quitar solo el manifiesto y el ejecutable verificados de Dummies? Se conservarán los demás archivos.",
+    confirmRemoveAction: "Confirmar eliminación",
+    removeBeforeDelete:
+      "Quita la integración con Steam antes de eliminar esta entrada de la biblioteca.",
+    folderPlaceholder: "Carpeta dedicada al dummy",
+    recoveryNote:
+      "Cierra Steam y respalda los archivos de Dummies antes de quitarlos. No muevas archivos de juegos reales.",
+    files: "Archivos de integración",
+    manifestFile: "Manifiesto",
+    dummyFile: "Ejecutable configurado",
+    openManifestFolder: "Abrir carpeta del manifiesto",
+    openDummyFolder: "Abrir carpeta del ejecutable",
+    openFolder: "Abrir carpeta",
   },
   search: {
     shortcut: "Ctrl K",
+  },
+  errors: {
+    ownership:
+      "No se pudo verificar que los archivos sean de Dummies y estén intactos. No se eliminó nada. Revisa la integración manualmente y conserva una copia.",
+    stopFirst: "Detén el dummy activo antes de modificar esta configuración.",
+    removeSteam: "Quita la integración con Steam antes de cambiar rutas o eliminar esta entrada.",
+    conflict:
+      "Ese archivo, carpeta o entrada ya existe. Elige un destino nuevo y dedicado; se conservaron los datos existentes.",
+    data: "No se pudieron leer los datos guardados. Cierra Dummies y revisa o restaura el archivo .json.bak afectado en AppData. Se conservaron los datos existentes.",
+    path: "La ruta o el identificador no es válido. Usa un ID numérico de Steam y una ruta relativa del ejecutable sin traversal ni enlaces.",
+    permission:
+      "Acceso denegado. Cierra Steam o el dummy activo y comprueba los permisos de la carpeta antes de reintentar.",
+    missing:
+      "No se encontró el juego, dummy o biblioteca de Steam necesarios. Revisa su configuración y restaura los archivos antes de reintentar.",
+    network:
+      "No se pudo conectar con el servicio. Comprueba tu conexión y reintenta; los datos en caché siguen disponibles.",
+    generic:
+      "La operación falló. Revisa la configuración y los permisos antes de reintentar. Los detalles técnicos están en la consola de diagnóstico.",
   },
 };

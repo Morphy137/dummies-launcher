@@ -1,0 +1,114 @@
+# Review implementation status
+
+2026-10-25, review fixes based on `59f7171`. Recorded locally on `development`; no publication or deployment performed.
+
+The functional safety/UI/distribution pass is commit `954cbef` (`fix: harden Steam integration and managed dummy workflows`).
+The subsequent backend-refactor commit separates the implementation without adding dependencies or changing IPC names.
+
+## Implemented
+
+- Steam: strict path validation, reparse-point rejection, registered-library selection,
+  dedicated destinations, ownership hashes, confirmed file-only removal, rollback,
+  original executable restoration, stable library identity and correct launch target.
+- Running games cannot be deleted or reconfigured. Duplicate persisted identities are rejected.
+- Dummy lifecycle: timer cancellation on drop, generation/clock checks at completion,
+  single-instance launcher, managed shortcuts, standalone stdin behavior and tray restoration.
+- Persistence: errors instead of silently empty libraries, flushed unique temporaries,
+  backups, operation serialization, validated catalog replacement and per-file migration.
+- UI: actionable list, working detail action/Ctrl+K, bounded catalog pages, nonblocking cached
+  searching, stale-response protection, distinct empty/error/loading states, shared retro countdown,
+  explicit Save/Cancel, imported options, focus restoration, responsive columns and keyboard support.
+- Localization/accessibility: document language, translated errors/native copy, high-contrast
+  styles, selection within editable fields, larger icon targets and delayed subscription cleanup.
+- Security/distribution: CSP, removed opener, release logging, update install guard,
+  portable marker/manual updates, root static-CRT config, packaged license inventories,
+  CI checks before release and truthful architecture/QA documentation.
+- Backend: extracted models/state, settings, library/catalog/bootstrap, storage/path validation/migration,
+  Steam, binary resources/targets, process lifecycle/timers, tray and shortcuts. `lib.rs` now composes
+  the app; `commands.rs` contains thin IPC adapters. Services borrow `AppState` directly, making
+  library identity, running-entry protection and concurrent mutations testable without a webview.
+- Contract regression coverage: Rust request deserialization/result serialization and frontend command
+  argument tests, including nullable exit codes, timer snapshots and unknown persisted fields.
+
+## Local verification
+
+| Command/check | Result |
+| --- | --- |
+| `pnpm check` | Pass: Biome and TypeScript |
+| `pnpm test` | 61 tests pass (including artwork/cache and bounded-card settings) |
+| `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 29 tests pass |
+| `cargo test --locked --manifest-path crates/dummy-game/Cargo.toml` | 5 tests pass |
+| `cargo fmt --manifest-path <each Cargo.toml> -- --check` | Both pass |
+| `cargo clippy --locked --manifest-path <each Cargo.toml> --all-targets -- -D warnings` | Both pass |
+| `pnpm tauri build --no-bundle` | Release executable builds |
+| `pnpm package:portable` | ZIP builds, 6.49 MiB; required resource inventory verified |
+| `powershell -ExecutionPolicy Bypass -File scripts/test-dummy.ps1` | SHOW/HIDE/QUIT pass, exit 0 |
+| Standalone native dummy launch/CloseMainWindow | Survives missing stdin and closes normally |
+| MSVC `dumpbin /dependents` on release dummy | System DLLs only; no VC runtime DLL dependency |
+| Browser preview | Settings language preview, Escape reversion, Ctrl+K and overflow checked; no console warnings/errors |
+| `git diff --check` | Pass |
+| Normalized extraction comparison against `954cbef` | All 77 original top-level functions retained; bodies unchanged except state borrowing/registration plumbing and formatting |
+| Command registration parity | Same 24 names, each registered exactly once |
+
+The refactor reruns frontend checks/tests, both Rust test suites, Rustfmt/Clippy and the release/portable
+builds. Native protocol, standalone behavior, DLL inspection and browser preview rows describe the
+earlier safety-pass smoke checks, not additional manual qualification of the refactor.
+
+### Retro clock UI follow-up
+
+The card and game detail now share a blue seven-segment SVG countdown in a dark, bordered
+clock case, without neon glow or pulsing. The phase/progress/explanation dock is removed.
+The card clock hides immediately on hover or keyboard focus and returns when controls are
+no longer shown, avoiding overlap with favorites/pause/stop. Timer behavior is unchanged.
+
+`pnpm check` and all 43 frontend tests pass, including 15 new digit/presentation tests.
+Browser checks with isolated fixture data confirmed both sizes, hover/focus hiding and
+restoration, and no progress dock or console warnings/errors. Release/portable builds are
+refreshed for local testing. Backend tests were not rerun for this UI-only follow-up;
+their 28 + 5 passing results above are from the backend-refactor validation.
+
+### Library filter layout follow-up
+
+The library reserves its 10 px custom scrollbar gutter and compensates the inline padding,
+so overflowing All results retain the existing Favorites/Active content width. Browser geometry
+checks with isolated fixture data passed at 940/1100/1280 px in grid/list views, including empty
+results: search, filters, actions, view toggles and heading/content bounds remain identical
+across filters. `pnpm check` and all 43 frontend tests pass; Rust code is unchanged.
+
+### Artwork and sizing follow-up
+
+- Cache: replaced 30-second URL eviction with a bounded LRU (128 entries/32 MiB of blobs),
+  retained mounted images, added memory-only caching when disk storage is unavailable and
+  cooldowns for HTTP failures. Successful fallback choices survive filter remounts.
+- Appearance: 4–24 cards per row and a persisted 120–300 px width cap, defaulting to 180 px
+  for existing settings. UI text/images cannot be accidentally selected/dragged; text inputs remain editable/selectable.
+- Artwork: full-size Steam posters and real landscape hero banners, with no API key. Missing
+  hero artwork falls back to a gradient rather than a magnified portrait. This is not a universal
+  banner service for non-Steam games.
+- Browser checks with isolated fixture data: repeated filter changes kept the same blob URL
+  and the same three initial cover requests; a 600×900 poster and 3840×1240 hero loaded from
+  Steam. Settings changes were previewed/saved, the 160 px test cap held at 940/1920/3840 px
+  without horizontal overflow, and selection was disabled on cards but enabled in inputs.
+- Tests cover memory/disk caches, deduplication, LRU/reference protection, byte/entry limits,
+  expiry, HTTP cooldowns, stale hook results, candidate selection, artwork URLs and settings
+  normalization/defaults/save/preview. Both Rust suites and release/portable builds are revalidated.
+
+The current static-CRT dummy is 933,888 bytes (912 KiB). Private working set in the
+protocol smoke test: 3.6 MB initially hidden, 4.0 MB visible/hidden after showing.
+The launcher process tree has **not** been rebenchmarked; the old ~147 MB result is historical.
+Vite reports a nonfatal ~568 kB minified entry chunk; chunk splitting remains an optimization opportunity.
+
+## Not certified as complete
+
+- Real Discord detection and quest acceptance, live Steam behavior, Windows 10/11/DPI/multi-monitor
+  qualification and signed installer upgrades require the manual checks in `QA.md`.
+- The complete launcher memory target is not demonstrated by the dummy-only smoke test.
+- The generated inventory contains 421 dependencies, including a conservative build/platform
+  superset. 13 packages have no license text in their installed package and are explicitly marked
+  for manual review. This is not a declaration of complete legal compliance.
+- Generated IPC bindings and a dedicated platform-independent app-core crate have not been introduced.
+  Contract regression tests reduce drift but do not replace generated bindings or end-to-end IPC testing.
+- Multi-file Steam rollback handles ordinary errors, not arbitrary power loss or a privileged
+  local process racing filesystem operations. Unverifiable legacy files are preserved for inspection.
+- Automated CI is configured but has not been executed remotely. No installer was installed and
+  no real user Steam library was modified during validation.

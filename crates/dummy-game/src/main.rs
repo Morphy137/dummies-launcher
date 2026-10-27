@@ -102,6 +102,7 @@ struct Options {
     display_name: String,
     show_window: bool,
     minimize_to_tray: bool,
+    managed: bool,
 }
 
 struct WindowState {
@@ -141,7 +142,8 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Options {
     let mut display_name = WINDOW_TITLE.to_string();
     let mut show_window = true;
     let mut minimize_to_tray = true;
-    let mut first_value = true;
+    let mut name_seen = false;
+    let mut managed = false;
 
     for arg in args {
         let value = arg.trim();
@@ -149,7 +151,10 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Options {
             continue;
         }
 
-        if value.eq_ignore_ascii_case("--window") || value.eq_ignore_ascii_case("--visible") {
+        if value.eq_ignore_ascii_case("--managed") {
+            managed = true;
+        } else if value.eq_ignore_ascii_case("--window") || value.eq_ignore_ascii_case("--visible")
+        {
             show_window = true;
         } else if value.eq_ignore_ascii_case("--hidden")
             || value.eq_ignore_ascii_case("--start-hidden")
@@ -157,17 +162,17 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Options {
             show_window = false;
         } else if value.eq_ignore_ascii_case("--no-tray") {
             minimize_to_tray = false;
-        } else if first_value && !value.starts_with("--") {
+        } else if !name_seen && !value.starts_with("--") {
             display_name = value.to_string();
+            name_seen = true;
         }
-
-        first_value = false;
     }
 
     Options {
         display_name,
         show_window,
-        minimize_to_tray,
+        minimize_to_tray: minimize_to_tray && managed,
+        managed,
     }
 }
 
@@ -1030,7 +1035,9 @@ fn main() {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, state as isize);
         (*state).present(hwnd);
         SetTimer(hwnd, 1, 50, None);
-        start_stdin_listener(hwnd);
+        if options.managed {
+            start_stdin_listener(hwnd);
+        }
 
         // Discord's runner scans normal top-level windows. Keep a small normal
         // detection window underneath an opaque part of the face.
@@ -1089,6 +1096,7 @@ mod tests {
             "Helldivers 2".to_string(),
             "--hidden".to_string(),
             "--no-tray".to_string(),
+            "--managed".to_string(),
         ]);
 
         assert_eq!(options.display_name, "Helldivers 2");
@@ -1097,12 +1105,13 @@ mod tests {
     }
 
     #[test]
-    fn defaults_to_visible_with_tray_behavior() {
+    fn defaults_to_visible_standalone_taskbar_behavior() {
         let options = parse_options(Vec::<String>::new());
 
         assert_eq!(options.display_name, "Game");
         assert!(options.show_window);
-        assert!(options.minimize_to_tray);
+        assert!(!options.minimize_to_tray);
+        assert!(!options.managed);
     }
 
     #[test]
@@ -1113,6 +1122,17 @@ mod tests {
         let master = RgbaImage::new(ART_MASTER_SIZE as u32, ART_MASTER_SIZE as u32);
         let frame = compose_frame(&master, DEFAULT_WIDTH, DEFAULT_HEIGHT);
         assert!(frame.len() == DEFAULT_WIDTH * DEFAULT_HEIGHT * 4);
+    }
+
+    #[test]
+    fn accepts_flags_before_name_and_requires_management_for_hidden_minimize() {
+        let options = parse_options(["--managed".into(), "--window".into(), "Example".into()]);
+        assert_eq!(options.display_name, "Example");
+        assert!(options.managed);
+        assert!(options.minimize_to_tray);
+        let standalone = parse_options(["Example".into()]);
+        assert!(!standalone.managed);
+        assert!(!standalone.minimize_to_tray);
     }
 
     #[test]

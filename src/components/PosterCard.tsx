@@ -9,8 +9,9 @@ import {
 } from "@fluentui/react-icons";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { getFallbackArt, getGameCoverCandidates, getGameInitials } from "../lib/covers";
+import { getFallbackArt, getGameInitials } from "../lib/covers";
 import { useCoverCandidates } from "../lib/useCoverCandidates";
+import { useGameCoverCandidates } from "../lib/useGameCoverCandidates";
 import type { Game } from "../types";
 import RetroClock from "./RetroClock";
 
@@ -39,11 +40,12 @@ export default function PosterCard({
   onTogglePause,
 }: PosterCardProps) {
   const { t } = useTranslation();
-  const candidates = getGameCoverCandidates(game);
+  const candidates = useGameCoverCandidates(game);
   const {
     src: cachedCover,
     failed: imageFailed,
     handleError: handleImageError,
+    handleLoad: handleImageLoad,
   } = useCoverCandidates(candidates);
   const fallback = getFallbackArt(game.name);
   const initials = getGameInitials(game.name);
@@ -65,6 +67,7 @@ export default function PosterCard({
             loading="lazy"
             decoding="async"
             onError={handleImageError}
+            onLoad={handleImageLoad}
           />
         ) : (
           <span className="poster-card__placeholder" aria-hidden="true">
@@ -101,7 +104,7 @@ export default function PosterCard({
         <div className="poster-card__overlay">
           {game.running ? (
             <div className="poster-card__controls">
-              {canPause ? (
+              {canPause && game.phase && game.phase !== "complete" ? (
                 <button
                   type="button"
                   className="play-button"
@@ -159,6 +162,7 @@ export default function PosterCard({
           className="more-button"
           aria-label={t("game.more")}
           title={t("game.more")}
+          onClick={() => onOpen(game)}
         >
           <MoreHorizontal20Regular />
         </button>
