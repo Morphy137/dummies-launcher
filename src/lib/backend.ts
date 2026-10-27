@@ -129,6 +129,23 @@ export async function getSteamLibraries(): Promise<string[]> {
   return invoke<string[]>("get_steam_libraries");
 }
 
+export async function inspectSteamIntegration(
+  appId: string,
+  exe: string,
+): Promise<{ manifestPath: string; dummyPath: string }> {
+  if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
+  return invoke("inspect_steam_integration", { appId, exe });
+}
+
+export async function openSteamIntegrationFolder(
+  appId: string,
+  exe: string,
+  manifest: boolean,
+): Promise<void> {
+  if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
+  return invoke("open_steam_integration_folder", { appId, exe, manifest });
+}
+
 export async function setupSteamIntegration(request: SteamSetupRequest): Promise<SteamSetupResult> {
   if (!isTauri()) throw new Error("The desktop backend is not available in the browser preview.");
   return invoke<SteamSetupResult>("setup_steam_integration", { request });

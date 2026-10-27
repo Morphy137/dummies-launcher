@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::AppHandle;
 use winreg::RegKey;
@@ -163,6 +164,93 @@ pub(crate) fn steam_layout(
         install_root,
         destination,
     })
+}
+
+fn legacy_dummy_path(
+    game: &crate::models::LibraryGame,
+    layout: &SteamLayout,
+) -> Result<PathBuf, String> {
+    if game.steam_dummy_sha256.is_none()
+        && let Some(path) = game.steam_exe_path.as_deref().map(PathBuf::from)
+        && path.exists()
+    {
+        reject_redirects(&path)?;
+        ensure_existing_within(&layout.install_root, &path)?;
+        return Ok(path);
+    }
+    Ok(layout.destination.clone())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SteamInspection {
+    manifest_path: String,
+    dummy_path: String,
+}
+
+fn inspection_layout(
+    state: &AppState,
+    app_id: &str,
+    exe: &str,
+) -> Result<(SteamLayout, PathBuf), String> {
+    let library = load_library(&state.paths.my_games_path)?;
+    let game = library
+        .iter()
+        .find(|game| game.app_id == app_id && game.exe == exe)
+        .ok_or_else(|| "Game not found in library".to_string())?;
+    if !game.use_steam_path {
+        return Err("Steam integration is not configured for this game".into());
+    }
+    let steam_path = checked_steam_library(game.steam_library_path.as_deref())?;
+    let layout = steam_layout(
+        &steam_path,
+        game.steam_app_id.as_deref().unwrap_or_default(),
+        game.install_dir.as_deref().unwrap_or_default(),
+        &game.exe,
+    )?;
+    let dummy_path = legacy_dummy_path(game, &layout)?;
+    Ok((layout, dummy_path))
+}
+
+pub(crate) fn inspect_steam_integration(
+    state: &AppState,
+    app_id: &str,
+    exe: &str,
+) -> Result<SteamInspection, String> {
+    let (layout, dummy_path) = inspection_layout(state, app_id, exe)?;
+    Ok(SteamInspection {
+        manifest_path: layout.manifest_path.to_string_lossy().into_owned(),
+        dummy_path: dummy_path.to_string_lossy().into_owned(),
+    })
+}
+
+pub(crate) fn open_steam_integration_folder(
+    state: &AppState,
+    app_id: &str,
+    exe: &str,
+    manifest: bool,
+) -> Result<(), String> {
+    let (layout, dummy_path) = inspection_layout(state, app_id, exe)?;
+    let mut folder = if manifest {
+        layout.steam_apps.clone()
+    } else {
+        dummy_path.parent().unwrap_or(&layout.common).to_path_buf()
+    };
+    while !folder.is_dir() && folder != layout.steam_apps {
+        folder = folder
+            .parent()
+            .ok_or_else(|| "Steam folder not found".to_string())?
+            .to_path_buf();
+    }
+    reject_redirects(&folder)?;
+    if !folder.is_dir() {
+        return Err("Steam folder not found".into());
+    }
+    Command::new("explorer.exe")
+        .arg(folder)
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -369,6 +457,12 @@ pub(crate) fn setup_steam_at(
             &layout.destination,
             original.steam_dummy_sha256.as_deref(),
         )?;
+        if original.steam_dummy_sha256.is_none() {
+            let legacy_path = legacy_dummy_path(&original, &layout)?;
+            if legacy_path != layout.destination {
+                read_owned_artifact(&layout.install_root, &legacy_path, None)?;
+            }
+        }
     } else {
         fs::create_dir_all(&layout.common).map_err(|error| error.to_string())?;
         if layout.manifest_path.exists() {
@@ -513,6 +607,13 @@ pub(crate) fn remove_steam_at(
         &layout.destination,
         original.steam_dummy_sha256.as_deref(),
     )?;
+
+    if original.steam_dummy_sha256.is_none() {
+        let legacy_path = legacy_dummy_path(&original, &layout)?;
+        if legacy_path != layout.destination {
+            read_owned_artifact(&layout.install_root, &legacy_path, None)?;
+        }
+    }
 
     let mut removed = Vec::new();
     let remove_result = (|| -> Result<(), String> {

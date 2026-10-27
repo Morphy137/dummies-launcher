@@ -175,8 +175,17 @@ export default {
     stopFirst: "Stop this dummy before changing Steam integration.",
     confirmRemove:
       "Remove only the verified Dummies manifest and executable? Unrelated files will be kept.",
+    confirmRemoveAction: "Confirm removal",
     removeBeforeDelete: "Remove Steam integration before deleting this library entry.",
     folderPlaceholder: "Dedicated dummy folder",
+    recoveryNote:
+      "Close Steam and back up Dummies files before removing them. Do not move files from actual games.",
+    files: "Integration files",
+    manifestFile: "Manifest",
+    dummyFile: "Configured executable",
+    openManifestFolder: "Open manifest folder",
+    openDummyFolder: "Open executable folder",
+    openFolder: "Open folder",
   },
   search: {
     shortcut: "Ctrl K",

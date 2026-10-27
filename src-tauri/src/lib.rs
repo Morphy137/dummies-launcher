@@ -108,6 +108,8 @@ pub fn run() {
             commands::create_shortcut,
             commands::get_steam_path,
             commands::get_steam_libraries,
+            commands::inspect_steam_integration,
+            commands::open_steam_integration_folder,
             commands::setup_steam_integration,
             commands::remove_steam_integration,
             commands::launch_dummy,

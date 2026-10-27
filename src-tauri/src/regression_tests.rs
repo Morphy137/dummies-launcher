@@ -113,6 +113,34 @@ fn steam_removal_preserves_unrelated_files_and_restores_identity() {
 }
 
 #[test]
+fn legacy_removal_refuses_a_different_unverified_executable() {
+    let f = Fixture::new();
+    let installed = f.install();
+    let legacy_path = Path::new(&installed.dest_exe_path).with_file_name("legacy.exe");
+    fs::rename(&installed.dest_exe_path, &legacy_path).unwrap();
+    fs::remove_file(&installed.manifest_path).unwrap();
+    let mut library = load_library(&f.state.paths.my_games_path).unwrap();
+    library[0].steam_manifest_sha256 = None;
+    library[0].steam_dummy_sha256 = None;
+    library[0].steam_exe_path = Some(legacy_path.to_string_lossy().into_owned());
+    write_library(&f.state.paths.my_games_path, &library).unwrap();
+    let update = SteamSetupRequest {
+        app_id: "123".into(),
+        current_exe: installed.updated_game.exe.clone(),
+        steam_app_id: "456".into(),
+        install_dir: "DedicatedDummy".into(),
+        exe: installed.updated_game.exe.clone(),
+        library_path: None,
+    };
+    assert!(setup_steam_at(&f.state, &f.source, &f.steam, &update).is_err());
+    assert!(!Path::new(&installed.manifest_path).exists());
+    assert!(remove_steam_at(&f.state, &f.steam, "123", &installed.updated_game.exe).is_err());
+    assert!(legacy_path.exists());
+    fs::remove_file(&legacy_path).unwrap();
+    assert!(remove_steam_at(&f.state, &f.steam, "123", &installed.updated_game.exe).is_ok());
+}
+
+#[test]
 fn steam_refuses_existing_installation_and_manifest() {
     let f = Fixture::new();
     let root = f.steam.join("steamapps/common/DedicatedDummy");
