@@ -1,6 +1,6 @@
 [package]
 name = "dummies"
-version = "1.0.5"
+version = "1.0.6"
 description = "A lightweight game presence launcher"
 authors = ["Morphy137"]
 license = "MIT"
