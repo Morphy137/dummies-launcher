@@ -5,6 +5,10 @@ on:
     branches: [development, main]
   pull_request:
   workflow_call:
+    inputs:
+      checkout_ref:
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -13,7 +17,11 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
+      - name: Preserve LF line endings
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
       - uses: pnpm/action-setup@v4
         with:
           version: 12.14.0
