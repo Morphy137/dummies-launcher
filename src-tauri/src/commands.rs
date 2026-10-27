@@ -115,6 +115,25 @@ pub(crate) fn get_steam_libraries() -> Vec<String> {
 }
 
 #[tauri::command(async)]
+pub(crate) fn inspect_steam_integration(
+    state: State<AppState>,
+    app_id: String,
+    exe: String,
+) -> Result<steam::SteamInspection, String> {
+    steam::inspect_steam_integration(state.inner(), &app_id, &exe)
+}
+
+#[tauri::command(async)]
+pub(crate) fn open_steam_integration_folder(
+    state: State<AppState>,
+    app_id: String,
+    exe: String,
+    manifest: bool,
+) -> Result<(), String> {
+    steam::open_steam_integration_folder(state.inner(), &app_id, &exe, manifest)
+}
+
+#[tauri::command(async)]
 pub(crate) fn setup_steam_integration(
     app: AppHandle,
     state: State<AppState>,

@@ -6,6 +6,7 @@ import {
   getBootstrap,
   getDatabasePage,
   getSteamLibraries,
+  openSteamIntegrationFolder,
   setupSteamIntegration,
   syncGamelist,
 } from "../lib/backend";
@@ -29,6 +30,11 @@ vi.mock("../lib/backend", () => ({
   getDatabasePage: vi.fn(),
   syncGamelist: vi.fn(),
   getSteamLibraries: vi.fn(),
+  inspectSteamIntegration: vi.fn().mockResolvedValue({
+    manifestPath: "C:\\Steam\\steamapps\\appmanifest_456.acf",
+    dummyPath: "C:\\Steam\\steamapps\\common\\Dummy\\old.exe",
+  }),
+  openSteamIntegrationFolder: vi.fn().mockResolvedValue(undefined),
   getBootstrap: vi.fn(),
   setupSteamIntegration: vi.fn(),
 }));
@@ -211,8 +217,25 @@ describe("critical UI flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "steam.remove" }));
     expect(remove).not.toHaveBeenCalled();
     await screen.findByText("steam.confirmRemove");
-    fireEvent.click(screen.getAllByRole("button", { name: "steam.remove" })[0]);
+    expect(screen.queryByRole("button", { name: "steam.remove" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "steam.update" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "common.cancel" }));
+    expect(remove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "steam.remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "steam.confirmRemoveAction" }));
     await waitFor(() => expect(remove).toHaveBeenCalledOnce());
+  });
+
+  it("opens the manifest and legacy executable folders for inspection", async () => {
+    vi.mocked(getSteamLibraries).mockResolvedValue(["C:\\Steam"]);
+    render(
+      <SteamDialog open game={game} onOpenChange={vi.fn()} onRemove={vi.fn()} onSave={vi.fn()} />,
+    );
+    expect(await screen.findByText("C:\\Steam\\steamapps\\common\\Dummy\\old.exe")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "steam.openManifestFolder" }));
+    fireEvent.click(screen.getByRole("button", { name: "steam.openDummyFolder" }));
+    expect(openSteamIntegrationFolder).toHaveBeenNthCalledWith(1, "123", "game.exe", true);
+    expect(openSteamIntegrationFolder).toHaveBeenNthCalledWith(2, "123", "game.exe", false);
   });
 
   it("list view can open, launch and favorite a game", () => {

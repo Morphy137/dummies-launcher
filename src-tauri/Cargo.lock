@@ -944,7 +944,7 @@ dependencies = [
 
 [[package]]
 name = "dummies"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "log",
  "mslnk",

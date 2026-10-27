@@ -9,7 +9,11 @@ import {
 } from "@fluentui/react-components";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { getSteamLibraries } from "../lib/backend";
+import {
+  getSteamLibraries,
+  inspectSteamIntegration,
+  openSteamIntegrationFolder,
+} from "../lib/backend";
 import { formatError } from "../lib/errors";
 import type { Game, SteamSetupRequest } from "../types";
 
@@ -47,6 +51,9 @@ export default function SteamDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [inspection, setInspection] = useState<{ manifestPath: string; dummyPath: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!open || !game) return;
@@ -54,6 +61,7 @@ export default function SteamDialog({
     let cancelled = false;
     setError(null);
     setConfirmRemove(false);
+    setInspection(null);
     setSteamPath(null);
     setSteamAppId(game.steamAppId || "");
     setInstallDir(defaultInstallDir(game));
@@ -69,6 +77,16 @@ export default function SteamDialog({
       .catch((reason: unknown) => {
         if (!cancelled) setError(formatError(reason));
       });
+
+    if (game.useSteamPath) {
+      void inspectSteamIntegration(game.appId, game.exe)
+        .then((paths) => {
+          if (!cancelled) setInspection(paths);
+        })
+        .catch((reason: unknown) => {
+          if (!cancelled) setError(formatError(reason));
+        });
+    }
 
     return () => {
       cancelled = true;
@@ -108,6 +126,15 @@ export default function SteamDialog({
     }
   };
 
+  const openFolder = async (manifest: boolean) => {
+    if (!game) return;
+    try {
+      await openSteamIntegrationFolder(game.appId, game.exe, manifest);
+    } catch (reason: unknown) {
+      setError(formatError(reason));
+    }
+  };
+
   return (
     <Dialog
       open={open}
@@ -119,8 +146,9 @@ export default function SteamDialog({
         <DialogBody className="steam-body">
           <DialogTitle className="steam-title">{t("steam.title")}</DialogTitle>
           <DialogContent className="steam-content">
-            <p className="steam-note">{t("steam.note")}</p>
-            <p className="steam-note">{t("steam.safeChanges")}</p>
+            <p className="steam-note">
+              {game?.useSteamPath ? t("steam.recoveryNote") : t("steam.safeChanges")}
+            </p>
             {game?.running ? <p role="status">{t("steam.stopFirst")}</p> : null}
             <div className="steam-path">
               <span>{t("steam.path")}</span>
@@ -179,27 +207,33 @@ export default function SteamDialog({
             </label>
 
             {error ? <div className="catalog-error">{error}</div> : null}
-            {confirmRemove ? (
-              <div role="alert">
-                <p>{t("steam.confirmRemove")}</p>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={busy || game?.running}
-                  onClick={() => void handleRemove()}
-                >
-                  {t("steam.remove")}
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={busy}
-                  onClick={() => setConfirmRemove(false)}
-                >
-                  {t("common.cancel")}
-                </button>
-              </div>
+            {inspection ? (
+              <section className="steam-inspection" aria-label={t("steam.files")}>
+                <span className="steam-inspection__title">{t("steam.files")}</span>
+                {(
+                  [
+                    ["manifestFile", "openManifestFolder", inspection.manifestPath, true],
+                    ["dummyFile", "openDummyFolder", inspection.dummyPath, false],
+                  ] as const
+                ).map(([label, action, path, manifest]) => (
+                  <div className="steam-inspection__row" key={label}>
+                    <div className="steam-inspection__file">
+                      <span>{t(`steam.${label}`)}</span>
+                      <code title={path}>{path}</code>
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      aria-label={t(`steam.${action}`)}
+                      onClick={() => void openFolder(manifest)}
+                    >
+                      {t("steam.openFolder")}
+                    </button>
+                  </div>
+                ))}
+              </section>
             ) : null}
+            {confirmRemove ? <p role="alert">{t("steam.confirmRemove")}</p> : null}
           </DialogContent>
 
           <DialogActions className="steam-actions">
@@ -207,30 +241,32 @@ export default function SteamDialog({
               <button
                 type="button"
                 className="secondary-button detail__danger-button"
-                onClick={() => setConfirmRemove(true)}
+                onClick={() => (confirmRemove ? void handleRemove() : setConfirmRemove(true))}
                 disabled={busy || game.running}
               >
-                {t("steam.remove")}
+                {t(confirmRemove ? "steam.confirmRemoveAction" : "steam.remove")}
               </button>
             ) : null}
             <span className="steam-actions__spacer" />
             <button
               type="button"
               className="secondary-button"
-              onClick={() => onOpenChange(false)}
+              onClick={() => (confirmRemove ? setConfirmRemove(false) : onOpenChange(false))}
               disabled={busy}
             >
               {t("common.cancel")}
             </button>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => void handleSave()}
-              disabled={busy || !steamPath || game?.running || confirmRemove}
-            >
-              {busy ? <Spinner size="tiny" /> : null}
-              {game?.useSteamPath ? t("steam.update") : t("steam.install")}
-            </button>
+            {!confirmRemove ? (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => void handleSave()}
+                disabled={busy || !steamPath || game?.running}
+              >
+                {busy ? <Spinner size="tiny" /> : null}
+                {game?.useSteamPath ? t("steam.update") : t("steam.install")}
+              </button>
+            ) : null}
           </DialogActions>
         </DialogBody>
       </DialogSurface>

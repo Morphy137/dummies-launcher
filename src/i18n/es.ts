@@ -176,9 +176,18 @@ export default {
     stopFirst: "Detén este dummy antes de modificar su integración con Steam.",
     confirmRemove:
       "¿Quitar solo el manifiesto y el ejecutable verificados de Dummies? Se conservarán los demás archivos.",
+    confirmRemoveAction: "Confirmar eliminación",
     removeBeforeDelete:
       "Quita la integración con Steam antes de eliminar esta entrada de la biblioteca.",
     folderPlaceholder: "Carpeta dedicada al dummy",
+    recoveryNote:
+      "Cierra Steam y respalda los archivos de Dummies antes de quitarlos. No muevas archivos de juegos reales.",
+    files: "Archivos de integración",
+    manifestFile: "Manifiesto",
+    dummyFile: "Ejecutable configurado",
+    openManifestFolder: "Abrir carpeta del manifiesto",
+    openDummyFolder: "Abrir carpeta del ejecutable",
+    openFolder: "Abrir carpeta",
   },
   search: {
     shortcut: "Ctrl K",
